@@ -3,7 +3,10 @@
 Interactive, single-file mockup (`index.html`) of an **"Ask Oscar"** AI coach inside Duolingo Chess's *Review your game* screen.
 
 ## Demo flow
-1. Review screen shows move 14 (`Ne5`), with **Better move available**. **HINT** and **FIX MOVE** work too.
+1. Review screen shows move 14 (`Ne5`), with **Better move available**. Only one action button shows at a time:
+   - **FIX MOVE** (yellow) rewinds to before move 14 and gives you the move.
+   - **HINT** (light grey) replaces it while you're fixing and draws the best move as an arrow. Tap the bishop and then d5 (or just d5 once the hint is showing) to play it.
+   - **NEXT HIGHLIGHT** (green) appears once you find the best move.
 2. Tap **ASK OSCAR**. A chat sheet slides up, the board shrinks so it stays visible, and Oscar opens with *"Reviewing move 14 — your knight on e5"*.
 3. Tap a chip (or type something):
    - **Why was this weak?** shows red arrows for `…Nf4` hitting your queen

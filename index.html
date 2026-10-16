@@ -186,14 +186,21 @@
   }
   @keyframes bob { 0%,100% { transform: translateY(-2px); } 50% { transform: translateY(-5px); } }
 
-  .actions { display: flex; gap: 10px; align-items: stretch; }
+  .actions { display: flex; gap: 10px; align-items: stretch; justify-content: space-between; }
   .btn {
     height: 52px; border-radius: 16px; font-weight: 900; font-size: 16px; letter-spacing: .9px;
     display: grid; place-items: center; transition: transform .08s;
   }
   .btn:active { transform: translateY(3px); }
   .btn.icon { width: 56px; flex: none; border: 2.5px solid var(--orange); box-shadow: 0 3px 0 #a8742f; color: var(--orange); }
-  .btn.hint { flex: 0 0 96px; border: 2.5px solid var(--line); box-shadow: 0 3px 0 var(--line); color: #c4d3da; display: flex; gap: 6px; justify-content: center; align-items: center; font-size: 15px; }
+  .btn.hint { display: none; flex: 0 0 150px; border: 2.5px solid var(--line); box-shadow: 0 3px 0 var(--line); color: #c4d3da; gap: 8px; justify-content: center; align-items: center; font-size: 16px; }
+  .btn.hint.used { color: #6b808a; border-color: #2a3940; box-shadow: 0 3px 0 #2a3940; }
+  /* One action at a time: review → FIX MOVE, fixing → HINT, solved → NEXT HIGHLIGHT */
+  .footer.fixing .btn.primary { display: none; }
+  .footer.fixing .btn.hint { display: flex; }
+  .footer.fixing .btn.icon { border-color: var(--line); box-shadow: 0 3px 0 var(--line); color: #6b808a; }
+  .footer.fixing .verdict { color: var(--muted); font-size: 20px; }
+  .sq.tappable { cursor: pointer; }
   .btn.primary { flex: 1; background: var(--yellow); color: #2d2500; box-shadow: 0 4px 0 var(--yellow-d); }
   .footer.good .btn.icon { border-color: var(--green); box-shadow: 0 3px 0 var(--green-d); color: var(--green); }
   .footer.good .btn.primary { background: var(--green); box-shadow: 0 4px 0 var(--green-d); color: #12230a; }
@@ -555,33 +562,53 @@ const footer = document.getElementById('footer');
 const verdict = document.getElementById('verdict');
 const primaryBtn = document.getElementById('primaryBtn');
 const coachText = document.getElementById('coachText');
-let fixed = false;
+let mode = 'review'; // review | fixing | solved
+const hintBtn = document.getElementById('hintBtn');
+let selected = null;
 
-function fixMove() {
-  if (fixed) { // "Next highlight" — reset the demo
-    fixed = false;
-    footer.classList.remove('good'); verdict.classList.remove('good');
+function setMode(m) {
+  mode = m;
+  footer.classList.toggle('fixing', m === 'fixing');
+  footer.classList.toggle('good', m === 'solved');
+  verdict.classList.toggle('good', m === 'solved');
+  hintBtn.classList.remove('used');
+  selected = null;
+  if (m === 'review') {
     verdict.textContent = 'Better move available'; primaryBtn.textContent = 'FIX MOVE';
     coachText.textContent = 'There was a chance to capture here.';
     showPlayedMove();
-    return;
-  }
-  fixed = true;
-  setPosition(START);
-  highlight({ c4: 'hi', d5: 'ring' });
-  arrows([['c4', 'd5', 'yellow']]);
-  setTimeout(() => { arrows([]); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5'); }, 900);
-  setTimeout(() => {
-    footer.classList.add('good'); verdict.classList.add('good');
+  } else if (m === 'fixing') {
+    verdict.textContent = 'Your move';
+    coachText.textContent = 'There was a chance to capture here.';
+    setPosition(START); highlight({}); arrows([]);
+  } else {
     verdict.textContent = 'Best move!'; primaryBtn.textContent = 'NEXT HIGHLIGHT';
     coachText.textContent = 'That knight was free. Nice find!';
-  }, 1500);
+  }
 }
-primaryBtn.addEventListener('click', fixMove);
-document.getElementById('hintBtn').addEventListener('click', () => {
-  if (fixed) return;
-  highlight({ f3: 'hi', e5: 'hi', d5: 'ring' });
-  coachText.textContent = 'Look for an enemy piece with no defenders.';
+
+/* FIX MOVE → rewind to before move 14 and let the player find it.
+   NEXT HIGHLIGHT → (demo) loop back to the review state. */
+primaryBtn.addEventListener('click', () => setMode(mode === 'solved' ? 'review' : 'fixing'));
+
+/* HINT draws the best move as an arrow on the board */
+hintBtn.addEventListener('click', () => {
+  if (mode !== 'fixing') return;
+  hintBtn.classList.add('used');
+  highlight({ c4: 'hi' });
+  arrows([['c4', 'd5', 'yellow']]);
+});
+
+/* While fixing, tap the bishop then d5 (or just d5 once the hint is showing) */
+squaresEl.addEventListener('click', e => {
+  if (mode !== 'fixing') return;
+  const sq = Object.keys(sqEls).find(k => sqEls[k] === e.target.closest('.sq'));
+  if (!sq) return;
+  if (sq === 'c4') { selected = 'c4'; highlight({ c4: 'hi', d5: 'ring' }); return; }
+  if (sq === 'd5' && (selected === 'c4' || hintBtn.classList.contains('used'))) {
+    arrows([]); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5');
+    setTimeout(() => setMode('solved'), 650);
+  }
 });
 
 /* ============ Ask Oscar chat ============ */
@@ -722,10 +749,8 @@ function closeChat() {
 }
 function tryIt() {
   closeChat();
-  fixed = false;
   setTimeout(() => {
-    setPosition(START);
-    highlight({ c4: 'hi', d5: 'ring' }); arrows([]);
+    setMode('fixing');
     coachText.textContent = 'Your turn — find the capture!';
   }, 300);
 }
