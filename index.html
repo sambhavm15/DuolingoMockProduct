@@ -169,6 +169,8 @@
   .verdict-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 58px; }
   .verdict { font-size: 25px; white-space: nowrap; min-width: 0; flex: 1; overflow: hidden; font-weight: 900; color: var(--orange); letter-spacing: -.2px; transition: color .3s; }
   .verdict.good { color: var(--green-txt); }
+  .verdict.bad { color: var(--red); }
+  .verdict.muted { color: var(--muted); }
   .ask-btn {
     display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 5px;
     border-radius: 22px; background: var(--blue); color: #fff; flex: none; white-space: nowrap;
@@ -204,8 +206,9 @@
   .footer.fixing .btn.primary { display: none; }
   .footer.fixing .btn.hint { display: flex; }
   .footer.fixing .btn.icon { border-color: var(--line); box-shadow: 0 3px 0 var(--line); color: #6b808a; }
-  .footer.fixing .verdict { color: var(--muted); font-size: 20px; }
-  .sq.tappable { cursor: pointer; }
+  .sq { cursor: pointer; }
+  .sq .dot { position: absolute; left: 37%; top: 37%; width: 26%; height: 26%; border-radius: 50%; background: rgba(206,224,232,.22); }
+  .sq .cap { position: absolute; inset: 5%; border-radius: 50%; border: 5px solid rgba(206,224,232,.22); }
   .btn.primary { flex: 1; background: var(--yellow); color: #2d2500; box-shadow: 0 4px 0 var(--yellow-d); }
   .footer.good .btn.icon { border-color: var(--green); box-shadow: 0 3px 0 var(--green-d); color: var(--green); }
   .footer.good .btn.primary { background: var(--green); box-shadow: 0 4px 0 var(--green-d); color: #12230a; }
@@ -381,11 +384,11 @@
 
   <div class="content">
     <div class="header">
-      <div class="tag">
+      <div class="tag" id="tag">
         <svg width="22" height="24" viewBox="0 0 22 24"><path d="M6 1h10v8h5L11 21 1 9h5z" fill="#ff4b4b"/></svg>
         BEHIND
       </div>
-      <div class="title">Review your game</div>
+      <div class="title" id="title">Review your game</div>
       <div class="coach-row">
         <svg class="oscar" viewBox="0 0 120 140"><use href="#oscar"/></svg>
         <div class="bubble" id="coachText">There was a chance to capture here.</div>
@@ -454,22 +457,376 @@
 </div>
 
 <script>
-/* ============ Position ============
-   Game review, move 14. You (White) played Nf3–e5.
-   Before the move: r1q2rk1/pppb1pp1/3b3p/3n4/2BP4/5N1P/PPPBQPP1/4R1K1 w
-   Black's knight on d5 was undefended — 14.Bxd5! wins it. */
-const START = {
-  a8:'br', c8:'bq', f8:'br', g8:'bk',
-  a7:'bp', b7:'bp', c7:'bp', d7:'bb', f7:'bp', g7:'bp',
-  d6:'bb', h6:'bp',
-  d5:'bn',
-  c4:'wb', d4:'wp',
-  f3:'wn', h3:'wp',
-  a2:'wp', b2:'wp', c2:'wp', d2:'wb', e2:'wq', f2:'wp', g2:'wp',
-  e1:'wr', g1:'wk'
-};
+/* ============ Chess engine ============
+   0x88 board, full rules (castling, en passant, promotion, check, mate,
+   stalemate, 50-move, threefold, insufficient material) and a small
+   alpha-beta search with quiescence. Pieces are 'wp', 'bn', … */
+const Engine = (() => {
+  const FILES = 'abcdefgh';
+  const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const sqName = i => FILES[i & 7] + (8 - (i >> 4));
+  const sqIdx = s => (8 - +s[1]) * 16 + FILES.indexOf(s[0]);
+  const VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+  const KN = [-33, -31, -18, -14, 14, 18, 31, 33];
+  const KG = [-17, -16, -15, -1, 1, 15, 16, 17];
+  const BD = [-17, -15, 15, 17];
+  const RD = [-16, -1, 1, 16];
+  const CR = { 116: 'KQ', 119: 'K', 112: 'Q', 4: 'kq', 7: 'k', 0: 'q' };
+  const MATE = 100000;
+
+  // Piece-square tables, White's view, a8..h8 first
+  const PST = {
+    p: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+    n: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+    b: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+    r: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+    q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+    k: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+    ke: [-50,-40,-30,-20,-20,-30,-40,-50, -30,-20,-10,0,0,-10,-20,-30, -30,-10,20,30,30,20,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,20,30,30,20,-10,-30, -30,-30,0,0,0,0,-30,-30, -50,-30,-30,-30,-30,-30,-30,-50]
+  };
+  const off = s => s & 0x88;
+  const opp = c => (c === 'w' ? 'b' : 'w');
+  const sameMove = (a, b) => !!a && !!b && a.from === b.from && a.to === b.to && (a.promo || null) === (b.promo || null);
+
+  class Game {
+    constructor(fen = START_FEN) { this.load(fen); }
+
+    load(fen) {
+      const [pos, turn, cas, ep, half, full] = fen.trim().split(/\s+/);
+      this.b = new Array(128).fill(null);
+      this.kings = { w: -1, b: -1 };
+      let r = 0, f = 0;
+      for (const ch of pos) {
+        if (ch === '/') { r++; f = 0; }
+        else if (/\d/.test(ch)) f += +ch;
+        else {
+          const c = ch === ch.toUpperCase() ? 'w' : 'b', t = ch.toLowerCase(), i = r * 16 + f;
+          this.b[i] = c + t;
+          if (t === 'k') this.kings[c] = i;
+          f++;
+        }
+      }
+      this.turn = turn || 'w';
+      this.castle = !cas || cas === '-' ? '' : cas;
+      this.ep = !ep || ep === '-' ? -1 : sqIdx(ep);
+      this.half = +half || 0;
+      this.full = +full || 1;
+      this.stack = [];
+      this.keys = [this.key()];
+    }
+
+    fen() {
+      let s = '';
+      for (let r = 0; r < 8; r++) {
+        let e = 0;
+        for (let f = 0; f < 8; f++) {
+          const p = this.b[r * 16 + f];
+          if (!p) { e++; continue; }
+          if (e) { s += e; e = 0; }
+          s += p[0] === 'w' ? p[1].toUpperCase() : p[1];
+        }
+        if (e) s += e;
+        if (r < 7) s += '/';
+      }
+      return `${s} ${this.turn} ${this.castle || '-'} ${this.ep < 0 ? '-' : sqName(this.ep)} ${this.half} ${this.full}`;
+    }
+    key() { return this.fen().split(' ').slice(0, 4).join(' '); }
+    clone() { return new Game(this.fen()); }
+
+    attacked(i, c) {
+      const b = this.b;
+      if (c === 'w') { if ((!off(i + 15) && b[i + 15] === 'wp') || (!off(i + 17) && b[i + 17] === 'wp')) return true; }
+      else if ((!off(i - 15) && b[i - 15] === 'bp') || (!off(i - 17) && b[i - 17] === 'bp')) return true;
+      for (const d of KN) { const s = i + d; if (!off(s) && b[s] === c + 'n') return true; }
+      for (const d of KG) { const s = i + d; if (!off(s) && b[s] === c + 'k') return true; }
+      for (const d of BD) for (let s = i + d; !off(s); s += d) { const p = b[s]; if (p) { if (p === c + 'b' || p === c + 'q') return true; break; } }
+      for (const d of RD) for (let s = i + d; !off(s); s += d) { const p = b[s]; if (p) { if (p === c + 'r' || p === c + 'q') return true; break; } }
+      return false;
+    }
+
+    // Squares of colour c's pieces that attack square i
+    attackers(i, c) {
+      const out = [], b = this.b;
+      for (const d of (c === 'w' ? [15, 17] : [-15, -17])) { const s = i + d; if (!off(s) && b[s] === c + 'p') out.push(s); }
+      for (const d of KN) { const s = i + d; if (!off(s) && b[s] === c + 'n') out.push(s); }
+      for (const d of KG) { const s = i + d; if (!off(s) && b[s] === c + 'k') out.push(s); }
+      for (const [dirs, ts] of [[BD, 'bq'], [RD, 'rq']])
+        for (const d of dirs) for (let s = i + d; !off(s); s += d) {
+          const p = b[s];
+          if (p) { if (p[0] === c && ts.includes(p[1])) out.push(s); break; }
+        }
+      return out;
+    }
+
+    inCheck(c = this.turn) { return this.attacked(this.kings[c], opp(c)); }
+
+    pseudo(capsOnly = false) {
+      const out = [], b = this.b, c = this.turn, o = opp(c);
+      const add = (from, to, p, cap, flag = 'n') => out.push({ from, to, p, cap, promo: null, flag });
+      for (let i = 0; i < 120; i++) {
+        if (off(i)) { i += 7; continue; }
+        const p = b[i];
+        if (!p || p[0] !== c) continue;
+        const t = p[1];
+        if (t === 'p') {
+          const dir = c === 'w' ? -16 : 16, startRow = c === 'w' ? 6 : 1, lastRow = c === 'w' ? 0 : 7;
+          const pawnTo = (to, cap) => {
+            if (to >> 4 === lastRow) for (const pr of 'qrbn') out.push({ from: i, to, p, cap, promo: pr, flag: 'p' });
+            else add(i, to, p, cap);
+          };
+          const one = i + dir;
+          if (!off(one) && !b[one]) {
+            if (!capsOnly || one >> 4 === lastRow) pawnTo(one, null);
+            if (!capsOnly && i >> 4 === startRow && !b[one + dir]) add(i, one + dir, p, null, 'b');
+          }
+          for (const s of [one - 1, one + 1]) {
+            if (off(s)) continue;
+            if (b[s] && b[s][0] === o) pawnTo(s, b[s]);
+            else if (s === this.ep) add(i, s, p, o + 'p', 'e');
+          }
+        } else if (t === 'n' || t === 'k') {
+          for (const d of t === 'n' ? KN : KG) {
+            const s = i + d;
+            if (off(s)) continue;
+            const q = b[s];
+            if (!q) { if (!capsOnly) add(i, s, p, null); }
+            else if (q[0] === o) add(i, s, p, q);
+          }
+        } else {
+          for (const d of t === 'b' ? BD : t === 'r' ? RD : KG)
+            for (let s = i + d; !off(s); s += d) {
+              const q = b[s];
+              if (!q) { if (!capsOnly) add(i, s, p, null); continue; }
+              if (q[0] === o) add(i, s, p, q);
+              break;
+            }
+        }
+      }
+      if (!capsOnly) {
+        const k = c === 'w' ? 116 : 4, K = c === 'w' ? 'K' : 'k', Q = c === 'w' ? 'Q' : 'q';
+        if (this.kings[c] === k && !this.attacked(k, o)) {
+          if (this.castle.includes(K) && !b[k + 1] && !b[k + 2] && b[k + 3] === c + 'r' && !this.attacked(k + 1, o) && !this.attacked(k + 2, o))
+            add(k, k + 2, c + 'k', null, 'k');
+          if (this.castle.includes(Q) && !b[k - 1] && !b[k - 2] && !b[k - 3] && b[k - 4] === c + 'r' && !this.attacked(k - 1, o) && !this.attacked(k - 2, o))
+            add(k, k - 2, c + 'k', null, 'q');
+        }
+      }
+      return out;
+    }
+
+    make(m) {
+      const b = this.b, c = this.turn;
+      this.stack.push({ m, castle: this.castle, ep: this.ep, half: this.half });
+      b[m.from] = null;
+      if (m.flag === 'e') b[m.to + (c === 'w' ? 16 : -16)] = null;
+      b[m.to] = m.promo ? c + m.promo : m.p;
+      if (m.p[1] === 'k') {
+        this.kings[c] = m.to;
+        if (m.flag === 'k') { b[m.to - 1] = b[m.to + 1]; b[m.to + 1] = null; }
+        if (m.flag === 'q') { b[m.to + 1] = b[m.to - 2]; b[m.to - 2] = null; }
+      }
+      if (this.castle) for (const sq of [m.from, m.to]) if (CR[sq]) for (const ch of CR[sq]) this.castle = this.castle.replace(ch, '');
+      this.ep = m.flag === 'b' ? (m.from + m.to) >> 1 : -1;
+      this.half = m.p[1] === 'p' || m.cap ? 0 : this.half + 1;
+      if (c === 'b') this.full++;
+      this.turn = opp(c);
+    }
+
+    undo() {
+      const st = this.stack.pop();
+      if (!st) return null;
+      const m = st.m, b = this.b, c = opp(this.turn);
+      b[m.from] = m.p;
+      if (m.flag === 'e') { b[m.to] = null; b[m.to + (c === 'w' ? 16 : -16)] = m.cap; }
+      else b[m.to] = m.cap;
+      if (m.p[1] === 'k') {
+        this.kings[c] = m.from;
+        if (m.flag === 'k') { b[m.to + 1] = b[m.to - 1]; b[m.to - 1] = null; }
+        if (m.flag === 'q') { b[m.to - 2] = b[m.to + 1]; b[m.to + 1] = null; }
+      }
+      this.castle = st.castle; this.ep = st.ep; this.half = st.half;
+      if (c === 'b') this.full--;
+      this.turn = c;
+      return m;
+    }
+
+    legal(capsOnly = false) {
+      const c = this.turn, o = opp(c);
+      return this.pseudo(capsOnly).filter(m => {
+        this.make(m);
+        const ok = !this.attacked(this.kings[c], o);
+        this.undo();
+        return ok;
+      });
+    }
+
+    // Game-level move/takeback (tracks repetition keys)
+    play(m) { this.make(m); this.keys.push(this.key()); }
+    takeback() { const m = this.undo(); if (m) this.keys.pop(); return m; }
+
+    insufficient() {
+      const minors = [];
+      for (let i = 0; i < 120; i++) {
+        if (off(i)) { i += 7; continue; }
+        const p = this.b[i];
+        if (!p || p[1] === 'k') continue;
+        if (p[1] === 'b' || p[1] === 'n') minors.push(p); else return false;
+      }
+      return minors.length <= 1;
+    }
+
+    status() {
+      if (!this.legal().length) return this.inCheck() ? 'checkmate' : 'stalemate';
+      if (this.half >= 100) return 'fifty';
+      if (this.insufficient()) return 'insufficient';
+      const k = this.keys[this.keys.length - 1];
+      if (this.keys.filter(x => x === k).length >= 3) return 'repetition';
+      return null;
+    }
+
+    san(m, legal = this.legal()) {
+      let s;
+      if (m.flag === 'k') s = 'O-O';
+      else if (m.flag === 'q') s = 'O-O-O';
+      else if (m.p[1] === 'p') s = (m.cap ? FILES[m.from & 7] + 'x' : '') + sqName(m.to) + (m.promo ? '=' + m.promo.toUpperCase() : '');
+      else {
+        s = m.p[1].toUpperCase();
+        const others = legal.filter(x => x.p === m.p && x.to === m.to && x.from !== m.from);
+        if (others.length) {
+          if (!others.some(x => (x.from & 7) === (m.from & 7))) s += FILES[m.from & 7];
+          else if (!others.some(x => x.from >> 4 === m.from >> 4)) s += 8 - (m.from >> 4);
+          else s += sqName(m.from);
+        }
+        s += (m.cap ? 'x' : '') + sqName(m.to);
+      }
+      this.make(m);
+      const suffix = this.inCheck() ? (this.legal().length ? '+' : '#') : '';
+      this.undo();
+      return s + suffix;
+    }
+
+    sanLine(moves) {
+      const out = [];
+      let n = 0;
+      for (const m of moves) { out.push(this.san(m)); this.make(m); n++; }
+      while (n--) this.undo();
+      return out;
+    }
+
+    material(c) {
+      let s = 0;
+      for (let i = 0; i < 120; i++) {
+        if (off(i)) { i += 7; continue; }
+        const p = this.b[i];
+        if (p && p[0] === c) s += { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }[p[1]];
+      }
+      return s;
+    }
+
+    // Static evaluation from the side to move's point of view
+    evaluate() {
+      const b = this.b;
+      let npm = 0, s = 0;
+      for (let i = 0; i < 120; i++) {
+        if (off(i)) { i += 7; continue; }
+        const p = b[i];
+        if (p && p[1] !== 'p' && p[1] !== 'k') npm += VAL[p[1]];
+      }
+      const kt = npm <= 2600 ? 'ke' : 'k';
+      for (let i = 0; i < 120; i++) {
+        if (off(i)) { i += 7; continue; }
+        const p = b[i];
+        if (!p) continue;
+        const r = i >> 4, f = i & 7, t = p[1];
+        const v = VAL[t] + PST[t === 'k' ? kt : t][(p[0] === 'w' ? r : 7 - r) * 8 + f];
+        s += p[0] === 'w' ? v : -v;
+      }
+      return this.turn === 'w' ? s : -s;
+    }
+  }
+
+  /* Iterative-deepening alpha-beta. Returns { move, score, pv, depth }
+     with score from the side to move's point of view (centipawns). */
+  function search(g, { maxDepth = 3, timeMs = 600 } = {}) {
+    const t0 = Date.now();
+    let nodes = 0, stop = false, canStop = false, prevPv = [];
+    const pv = [];
+    const ordered = (moves, pvMove) => {
+      for (const m of moves) {
+        m.o = sameMove(m, pvMove) ? 1e6 : (m.cap ? 10 * VAL[m.cap[1]] - VAL[m.p[1]] + 1000 : 0) + (m.promo ? VAL[m.promo] : 0);
+      }
+      return moves.sort((a, b) => b.o - a.o);
+    };
+    const tick = () => { if ((++nodes & 1023) === 0 && canStop && Date.now() - t0 > timeMs) stop = true; };
+
+    function qs(alpha, beta, ply) {
+      tick();
+      const stand = g.evaluate();
+      if (stand >= beta) return beta;
+      if (stand > alpha) alpha = stand;
+      if (ply > 24) return alpha;
+      const c = g.turn, o = opp(c);
+      for (const m of ordered(g.pseudo(true), null)) {
+        g.make(m);
+        if (g.attacked(g.kings[c], o)) { g.undo(); continue; }
+        const sc = -qs(-beta, -alpha, ply + 1);
+        g.undo();
+        if (stop) return 0;
+        if (sc >= beta) return beta;
+        if (sc > alpha) alpha = sc;
+      }
+      return alpha;
+    }
+
+    function ab(depth, alpha, beta, ply) {
+      pv[ply] = [];
+      const c = g.turn, o = opp(c);
+      const inChk = g.attacked(g.kings[c], o);
+      if (inChk && ply < 8) depth++;
+      if (depth <= 0) return qs(alpha, beta, ply);
+      tick();
+      let legal = 0;
+      for (const m of ordered(g.pseudo(false), prevPv[ply])) {
+        g.make(m);
+        if (g.attacked(g.kings[c], o)) { g.undo(); continue; }
+        legal++;
+        pv[ply + 1] = [];
+        const sc = -ab(depth - 1, -beta, -alpha, ply + 1);
+        g.undo();
+        if (stop) return 0;
+        if (sc > alpha) {
+          alpha = sc;
+          pv[ply] = [m, ...(pv[ply + 1] || [])];
+          if (alpha >= beta) return beta;
+        }
+      }
+      if (!legal) return inChk ? -MATE + ply : 0;
+      return alpha;
+    }
+
+    let result = null;
+    for (let d = 1; d <= maxDepth; d++) {
+      canStop = d > 1;
+      const sc = ab(d, -MATE - 1, MATE + 1, 0);
+      if (stop) break;
+      result = { score: sc, pv: pv[0].slice(), move: pv[0][0] || null, depth: d };
+      prevPv = result.pv;
+      if (Math.abs(sc) > MATE - 1000) break;
+    }
+    if (!result || !result.move) {
+      const legal = g.legal();
+      result = { score: result ? result.score : 0, pv: legal.length ? [legal[0]] : [], move: legal[0] || null, depth: 0 };
+    }
+    return result;
+  }
+
+  return { Game, search, sqName, sqIdx, sameMove, MATE, START_FEN, VAL };
+})();
+
+/* ============ Board rendering ============ */
 const FILES = 'abcdefgh';
 const xy = sq => [FILES.indexOf(sq[0]), 8 - +sq[1]];
+const sn = Engine.sqName;
 
 const squaresEl = document.getElementById('squares');
 const boardEl = document.getElementById('board');
@@ -479,6 +836,7 @@ for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
   const d = document.createElement('div');
   const name = FILES[f] + (8 - r);
   d.className = 'sq' + ((r + f) % 2 === 0 ? ' l' : '');
+  d.dataset.sq = name;
   squaresEl.appendChild(d);
   sqEls[name] = d;
 }
@@ -513,27 +871,48 @@ function setPosition(pos) {
     return p;
   });
 }
+function capture(sq) {
+  const victim = pieces.find(q => q.sq === sq);
+  if (!victim) return;
+  setTimeout(() => victim.el.classList.add('gone'), 380);
+  setTimeout(() => victim.el.remove(), 700);
+  pieces = pieces.filter(q => q !== victim);
+}
 function move(from, to) {
   const p = pieces.find(q => q.sq === from);
-  const victim = pieces.find(q => q.sq === to);
   if (!p) return;
+  capture(to);
   p.el.classList.add('lift');
   p.sq = to; place(p);
-  if (victim) {
-    setTimeout(() => victim.el.classList.add('gone'), 380);
-    setTimeout(() => victim.el.remove(), 700);
-    pieces = pieces.filter(q => q !== victim);
-  }
   setTimeout(() => p.el.classList.remove('lift'), 600);
 }
+// Animate an engine move object on the DOM board (castling, en passant, promotion aware)
+function animateMove(m) {
+  if (m.flag === 'e') capture(sn(m.to + (m.p[0] === 'w' ? 16 : -16)));
+  move(sn(m.from), sn(m.to));
+  if (m.flag === 'k') move(sn(m.to + 1), sn(m.to - 1));
+  if (m.flag === 'q') move(sn(m.to - 2), sn(m.to + 1));
+  if (m.promo) {
+    const p = pieces.find(q => q.sq === sn(m.to));
+    if (p) setTimeout(() => { p.code = m.p[0] + m.promo; p.el.innerHTML = pieceSVG(p.code); }, 420);
+  }
+}
+const posFromGame = g => {
+  const pos = {};
+  for (let i = 0; i < 120; i++) { if (i & 0x88) { i += 7; continue; } if (g.b[i]) pos[sn(i)] = g.b[i]; }
+  return pos;
+};
 
+// map: { e4: 'hi', d5: 'ring', f3: 'hi dot' }
 function highlight(map = {}) {
   Object.values(sqEls).forEach(el => { el.classList.remove('hi', 'hi-red', 'hi-green'); el.innerHTML = ''; });
-  for (const [sq, cls] of Object.entries(map)) {
-    if (cls === 'ring') sqEls[sq].innerHTML = '<div class="ring"></div>';
+  for (const [sq, v] of Object.entries(map)) for (const cls of v.split(' ')) {
+    if (!cls) continue;
+    if (cls === 'ring' || cls === 'dot' || cls === 'cap') sqEls[sq].insertAdjacentHTML('beforeend', `<div class="${cls}"></div>`);
     else sqEls[sq].classList.add(cls);
   }
 }
+const addHl = (map, sq, cls) => { map[sq] = map[sq] ? map[sq] + ' ' + cls : cls; return map; };
 
 const ARROW_COLORS = { yellow: '#ffc800', red: '#ff4b4b', green: '#93d333' };
 function arrows(list = []) {
@@ -552,78 +931,381 @@ function arrows(list = []) {
   }).join('');
 }
 
-/* Base review state: show the move that was played (Nf3–e5) */
-function showPlayedMove() {
-  const pos = { ...START }; delete pos.f3; pos.e5 = 'wn';
-  setPosition(pos);
-  highlight({ f3: 'hi', e5: 'hi' });
-  arrows([]);
-}
-showPlayedMove();
+/* ============ Game state ============
+   You always play White against the engine (Black).
+   Default load is the move-14 review demo: you played Ne5, but Black's
+   knight on d5 was undefended — 14.Bxd5! wins it. ?new=1 starts a fresh game. */
+const DEMO_FEN = 'r1q2rk1/pppb1pp1/3b3p/3n4/2BP4/5N1P/PPPBQPP1/4R1K1 w - - 0 14';
+const SEARCH = { maxDepth: 4, timeMs: 600 };       // coach: best move
+const REPLY_SEARCH = { maxDepth: 3, timeMs: 400 }; // coach: Black's answer to your move
+const BOT = { maxDepth: 4, timeMs: 700 };          // opponent strength
+const MATE_ZONE = Engine.MATE - 1000;
+const PNAME = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
 
-/* ============ Footer buttons ============ */
+let game;
+let mode = 'review';     // review | fixing | solved | play | over
+let reviews = {};        // ply index of your move -> analysis
+let redoStack = [];
+let busy = false, selected = null, previewing = false;
+let fixBest = null, hintMove = null, hintShown = false, lastEval = 0;
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
 const phone = document.getElementById('phone');
 const footer = document.getElementById('footer');
 const verdict = document.getElementById('verdict');
 const primaryBtn = document.getElementById('primaryBtn');
-const coachText = document.getElementById('coachText');
-let mode = 'review'; // review | fixing | solved
 const hintBtn = document.getElementById('hintBtn');
-let selected = null;
+const coachText = document.getElementById('coachText');
+const titleEl = document.getElementById('title');
+const tagEl = document.getElementById('tag');
+const [undoBtn, redoBtn] = document.querySelectorAll('.btn.icon');
 
-function setMode(m) {
-  mode = m;
-  footer.classList.toggle('fixing', m === 'fixing');
-  footer.classList.toggle('good', m === 'solved');
-  verdict.classList.toggle('good', m === 'solved');
-  hintBtn.classList.remove('used');
-  selected = null;
-  if (m === 'review') {
-    verdict.textContent = 'Better move available'; primaryBtn.textContent = 'FIX MOVE';
-    coachText.textContent = 'There was a chance to capture here.';
-    showPlayedMove();
-  } else if (m === 'fixing') {
-    verdict.textContent = 'Your move';
-    coachText.textContent = 'There was a chance to capture here.';
-    setPosition(START); highlight({}); arrows([]);
-  } else {
-    verdict.textContent = 'Best move!'; primaryBtn.textContent = 'NEXT HIGHLIGHT';
-    coachText.textContent = 'That knight was free. Nice find!';
-  }
+const coach = t => { coachText.textContent = t; };
+const setTitle = t => { titleEl.textContent = t; };
+function setVerdict(text, tone = 'warn') {
+  verdict.textContent = text;
+  verdict.classList.toggle('good', tone === 'good');
+  verdict.classList.toggle('bad', tone === 'bad');
+  verdict.classList.toggle('muted', tone === 'muted');
+  fitVerdict();
+}
+// kind: 'fix' (yellow FIX MOVE) | 'hint' (grey HINT) | 'wait' (HINT, disabled) | 'go' (green, with label)
+function setFooter(kind, label) {
+  footer.classList.toggle('fixing', kind === 'hint' || kind === 'wait');
+  footer.classList.toggle('good', kind === 'go');
+  hintBtn.classList.toggle('used', kind === 'wait' || hintShown);
+  primaryBtn.textContent = kind === 'fix' ? 'FIX MOVE' : (label || '');
+}
+const TAG_ICONS = {
+  down: '<path d="M6 1h10v8h5L11 21 1 9h5z" fill="currentColor"/>',
+  down2: '<path d="M6 0h10v7h5L11 16 1 7h5z" fill="currentColor"/><path d="M2.5 15.5L11 23l8.5-7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  up: '<path d="M6 23h10v-8h5L11 3 1 15h5z" fill="currentColor"/>',
+  up2: '<path d="M6 24h10v-7h5L11 8 1 17h5z" fill="currentColor"/><path d="M2.5 8.5L11 1l8.5 7.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>',
+  even: '<rect x="2" y="6" width="18" height="4.5" rx="2.25" fill="currentColor"/><rect x="2" y="13.5" width="18" height="4.5" rx="2.25" fill="currentColor"/>'
+};
+function setTag(score) {
+  const [label, icon, color] =
+    score > 300 ? ['WAY AHEAD', 'up2', 'var(--green)'] :
+    score > 100 ? ['AHEAD', 'up', 'var(--green)'] :
+    score >= -100 ? ['EVEN', 'even', 'var(--muted)'] :
+    score >= -300 ? ['BEHIND', 'down', 'var(--red)'] : ['WAY BEHIND', 'down2', 'var(--red)'];
+  tagEl.style.color = color;
+  tagEl.innerHTML = `<svg width="22" height="24" viewBox="0 0 22 24">${TAG_ICONS[icon]}</svg> ${label}`;
 }
 
-/* FIX MOVE → rewind to before move 14 and let the player find it.
-   NEXT HIGHLIGHT → (demo) loop back to the review state. */
 /* Keep the verdict on one line: shrink the font until it fits next to Ask Oscar */
 function fitVerdict() {
-  let size = 25;
+  let size = verdict.classList.contains('muted') ? 20 : 25;
   verdict.style.fontSize = size + 'px';
   while (verdict.scrollWidth > verdict.clientWidth && size > 14) verdict.style.fontSize = (--size) + 'px';
 }
-new MutationObserver(fitVerdict).observe(verdict, { childList: true, characterData: true, subtree: true });
 window.addEventListener('resize', fitVerdict);
 document.fonts && document.fonts.ready.then(fitVerdict);
-fitVerdict();
 
-primaryBtn.addEventListener('click', () => setMode(mode === 'solved' ? 'review' : 'fixing'));
+/* ---------- Live board ---------- */
+const lastMove = () => { const st = game.stack[game.stack.length - 1]; return st && st.m; };
+function liveHighlights(extra = {}) {
+  const map = {};
+  const lm = lastMove();
+  if (lm) { addHl(map, sn(lm.from), 'hi'); addHl(map, sn(lm.to), 'hi'); }
+  if (game.inCheck()) addHl(map, sn(game.kings[game.turn]), 'hi-red');
+  for (const [k, v] of Object.entries(extra)) addHl(map, k, v);
+  return map;
+}
+function renderLive(anim) {
+  previewing = false; selected = null;
+  if (anim) {
+    animateMove(anim);
+    setTimeout(() => { if (!previewing && !samePieces()) setPosition(posFromGame(game)); }, 800);
+  } else setPosition(posFromGame(game));
+  highlight(liveHighlights());
+  arrows(hintShown && hintMove ? [[sn(hintMove.from), sn(hintMove.to), 'yellow']] : []);
+}
+function samePieces() {
+  const want = posFromGame(game);
+  return pieces.length === Object.keys(want).length && pieces.every(p => want[p.sq] === p.code);
+}
+// Show some other position (used by Oscar's explanations); the live game is restored on the next tap
+function preview(fen, hl = {}, arr = []) {
+  previewing = true; selected = null;
+  setPosition(posFromGame(new Engine.Game(fen)));
+  highlight(hl); arrows(arr);
+}
 
-/* HINT draws the best move as an arrow on the board */
-hintBtn.addEventListener('click', () => {
-  if (mode !== 'fixing') return;
-  hintBtn.classList.add('used');
-  highlight({ c4: 'hi' });
-  arrows([['c4', 'd5', 'yellow']]);
+/* ---------- Coaching analysis ---------- */
+const isMistake = a => !!a && (a.cls === 'better' || a.cls === 'blunder');
+const VERDICT = { best: ['Best move!', 'good'], good: ['Good move', 'good'], better: ['Better move available', 'warn'], blunder: ['Big mistake', 'bad'] };
+
+function analyze(fenBefore, m) {
+  const g = new Engine.Game(fenBefore);
+  const legal = g.legal();
+  const mm = legal.find(x => Engine.sameMove(x, m)) || m;
+  const san = g.san(mm, legal);
+  const best = Engine.search(g, SEARCH);
+  const bestSan = g.san(best.move, legal);
+  const isBest = Engine.sameMove(best.move, mm);
+  const a = {
+    fenBefore, move: mm, san, isBest, moveNo: g.full,
+    best: best.move, bestSan, bestScore: best.score,
+    bestPv: best.pv.slice(0, 5), bestLine: g.sanLine(best.pv.slice(0, 5))
+  };
+  g.make(mm);
+  a.fenAfter = g.fen();
+  a.replyPv = []; a.replyLine = [];
+  if (!g.legal().length) a.played = g.inCheck() ? Engine.MATE : 0;
+  else {
+    const reply = Engine.search(g, REPLY_SEARCH);
+    a.played = -reply.score;
+    a.replyPv = reply.pv.slice(0, 4);
+    a.replyLine = g.sanLine(a.replyPv);
+  }
+  if (isBest) a.played = Math.max(a.played, a.bestScore);
+  a.loss = isBest ? 0 : Math.max(0, a.bestScore - a.played);
+  a.cls = a.loss <= 25 ? (isBest ? 'best' : 'good') : a.loss <= 300 ? 'better' : 'blunder';
+  a.comment = commentFor(a);
+  return a;
+}
+// A piece of yours that Black's best reply wins
+function hangs(a) {
+  const r = a.replyPv[0];
+  return r && r.cap && r.cap[0] === 'w' && a.loss > 100 ? { piece: r.cap[1], sq: sn(r.to) } : null;
+}
+function commentFor(a) {
+  if (!isMistake(a)) {
+    if (a.san.endsWith('#')) return 'Checkmate! What a finish.';
+    if (a.played >= MATE_ZONE) return 'Checkmate is coming — finish it!';
+    if (a.move.cap) return `Nice capture — that ${PNAME[a.move.cap[1]]} is yours.`;
+    if (a.move.flag === 'k' || a.move.flag === 'q') return 'Castled — your king is safe now.';
+    if (a.san.endsWith('+')) return 'Check! Keep up the pressure.';
+    return a.cls === 'best' ? "That's exactly what I'd play!" : 'Solid move.';
+  }
+  if (a.bestScore >= MATE_ZONE && a.played < MATE_ZONE) return 'There was a checkmate here!';
+  if (a.played <= -MATE_ZONE) return 'Careful — this lets Black checkmate you.';
+  if (a.best.cap && !a.move.cap) return 'There was a chance to capture here.';
+  if (a.best.flag === 'k' || a.best.flag === 'q') return 'Castling your king would have set you up better here.';
+  const h = hangs(a);
+  if (h) return `Watch out — your ${PNAME[h.piece]} on ${h.sq} can be taken.`;
+  return 'There was a stronger move here.';
+}
+function showReview(a) {
+  const [t, tone] = VERDICT[a.cls];
+  setVerdict(t, tone);
+  coach(a.comment);
+  setTag(a.played);
+}
+function latestReviewIndex() {
+  for (let i = game.stack.length - 1; i >= 0; i--) if (game.stack[i].m.p[0] === 'w') return reviews[i] ? i : -1;
+  return -1;
+}
+const latestReview = () => { const i = latestReviewIndex(); return i < 0 ? null : reviews[i]; };
+const canFix = () => !busy && (mode === 'play' || mode === 'review') && isMistake(latestReview());
+
+/* ---------- Turn flow ---------- */
+const canUserMove = () => !busy && game.turn === 'w' && (mode === 'play' || mode === 'fixing');
+
+async function userMove(m) {
+  busy = true;
+  const fenBefore = game.fen(), ply = game.stack.length;
+  hintShown = false; hintMove = null;
+  game.play(m); redoStack = [];
+  renderLive(m);
+  setFooter('wait');
+  await wait(420);
+  const a = analyze(fenBefore, m);
+
+  if (mode === 'fixing') {
+    if (Engine.sameMove(m, fixBest) || a.loss <= 25) {
+      reviews[ply] = a;
+      mode = 'solved';
+      setVerdict('Best move!', 'good');
+      coach(a.move.cap ? `That ${PNAME[a.move.cap[1]]} was free. Nice find!` : 'Nice find — that’s the move!');
+      setTag(a.played);
+      setFooter('go', 'PLAY ON');
+      chatNote(`You played ${a.moveNo}. ${a.san}`);
+    } else {
+      setVerdict('Not quite — try again', 'warn');
+      coach('Not quite. Look again — tap HINT if you’re stuck.');
+      await wait(650);
+      game.takeback();
+      renderLive();
+      setFooter('hint');
+    }
+    busy = false; refreshChips();
+    return;
+  }
+
+  reviews[ply] = a;
+  showReview(a);
+  chatNote(`You played ${a.moveNo}. ${a.san}`);
+  if (checkOver()) { busy = false; return; }
+  await wait(250);
+  botMove();
+}
+
+async function botMove() {
+  busy = true;
+  mode = 'play';
+  setFooter('wait');
+  setTitle('Black is thinking…');
+  await wait(60);
+  const res = Engine.search(game, BOT);
+  const san = game.san(res.move), moveNo = game.full;
+  game.play(res.move);
+  renderLive(res.move);
+  lastEval = -res.score;
+  setTag(lastEval);
+  chatNote(`Black played ${moveNo}… ${san}`);
+  if (res.move.cap) coach(`Black took your ${PNAME[res.move.cap[1]]} on ${sn(res.move.to)}.` + (san.endsWith('+') ? ' And it’s check!' : ''));
+  else if (san.endsWith('+')) coach('Check! Get your king to safety.');
+  if (checkOver()) { busy = false; return; }
+  setTitle('Your move');
+  const a = latestReview();
+  if (!a) setVerdict('Your move', 'muted');
+  setFooter(isMistake(a) ? 'fix' : 'hint');
+  busy = false;
+  refreshChips();
+}
+
+function checkOver() {
+  const st = game.status();
+  if (!st) return false;
+  mode = 'over';
+  if (st === 'checkmate' && game.turn === 'b') {
+    setTitle('You won!'); setVerdict('Checkmate!', 'good'); setTag(Engine.MATE);
+    coach('Checkmate! Brilliant game — I’m proud of you.');
+  } else if (st === 'checkmate') {
+    setTitle('Black wins'); setVerdict('Checkmate', 'bad'); setTag(-Engine.MATE);
+    coach('Checkmate. Tough one — undo a few moves and let’s see where it turned.');
+  } else {
+    setTitle('It’s a draw'); setVerdict('Draw', 'muted'); setTag(0);
+    coach({
+      stalemate: 'Stalemate — Black has no legal moves but isn’t in check, so it’s a draw.',
+      fifty: '50 moves without a capture or pawn move — that’s a draw.',
+      insufficient: 'Not enough pieces left to checkmate — it’s a draw.',
+      repetition: 'Same position three times — that’s a draw by repetition.'
+    }[st]);
+  }
+  setFooter('go', 'NEW GAME');
+  chatNote(verdict.textContent);
+  refreshChips();
+  return true;
+}
+
+// Rewind to just before your last reviewed move and ask you to find the better one
+function enterFix() {
+  const i = latestReviewIndex();
+  if (i < 0) return;
+  const a = reviews[i];
+  while (game.stack.length > i) game.takeback();
+  redoStack = [];
+  mode = 'fixing'; fixBest = a.best; hintShown = false; hintMove = null;
+  renderLive();
+  setTitle('Review your game');
+  setVerdict('Your move', 'muted');
+  coach(a.comment);
+  setTag(a.played);
+  setFooter('hint');
+  refreshChips();
+}
+
+function newGame() {
+  game = new Engine.Game();
+  mode = 'play'; reviews = {}; redoStack = []; fixBest = null; hintShown = false; hintMove = null; lastEval = 0;
+  renderLive();
+  setTitle('Your move'); setTag(0); setVerdict('Your move', 'muted');
+  coach('New game! You’re White — make your first move.');
+  setFooter('hint');
+  chatNote('New game started — you’re White');
+  refreshChips();
+}
+
+function loadDemo() {
+  game = new Engine.Game(DEMO_FEN);
+  const ne5 = game.legal().find(m => sn(m.from) === 'f3' && sn(m.to) === 'e5');
+  game.play(ne5);
+  mode = 'review';
+  renderLive();
+  setTitle('Review your game');
+  setVerdict('Better move available');
+  coach('There was a chance to capture here.');
+  tagEl.style.color = 'var(--red)';
+  setFooter('fix');
+  // Analyse in the background so FIX MOVE / Oscar know the real best move
+  setTimeout(() => {
+    const a = analyze(DEMO_FEN, ne5);
+    Object.assign(a, { cls: 'better', demo: true, comment: 'There was a chance to capture here.' });
+    reviews[0] = a;
+  }, 80);
+}
+
+/* ---------- Controls ---------- */
+primaryBtn.addEventListener('click', () => {
+  if (busy) return;
+  if (mode === 'solved') botMove();
+  else if (mode === 'over') newGame();
+  else if (mode === 'review' || mode === 'play') enterFix();
 });
 
-/* While fixing, tap the bishop then d5 (or just d5 once the hint is showing) */
+// HINT draws the best move as an arrow; tap its destination to play it
+hintBtn.addEventListener('click', () => {
+  if (!canUserMove() || hintShown) return;
+  if (previewing) renderLive();
+  hintMove = mode === 'fixing' && fixBest ? fixBest : Engine.search(game, SEARCH).move;
+  hintShown = true;
+  hintBtn.classList.add('used');
+  highlight(liveHighlights({ [sn(hintMove.from)]: 'hi' }));
+  arrows([[sn(hintMove.from), sn(hintMove.to), 'yellow']]);
+  coach('Follow the arrow — tap the square it points to.');
+});
+
+// Undo: take back to your previous turn. Redo: replay what you took back
+// (on the opening review screen, redo continues the game as you played it).
+undoBtn.addEventListener('click', () => {
+  if (busy || !game.stack.length) return;
+  do { redoStack.push(game.takeback()); } while (game.stack.length && game.turn !== 'w');
+  afterHistoryJump();
+});
+redoBtn.addEventListener('click', () => {
+  if (busy) return;
+  if (mode === 'review' && !redoStack.length) { botMove(); return; }
+  if (!redoStack.length) return;
+  do { game.play(redoStack.pop()); } while (redoStack.length && game.turn !== 'w');
+  afterHistoryJump();
+  if (mode !== 'over' && game.turn === 'b') botMove();
+});
+function afterHistoryJump() {
+  mode = 'play'; hintShown = false; hintMove = null;
+  renderLive();
+  if (checkOver()) return;
+  setTitle('Your move');
+  const a = latestReview();
+  if (a) showReview(a); else { setVerdict('Your move', 'muted'); coach('Your move!'); }
+  setFooter(isMistake(a) ? 'fix' : 'hint');
+  refreshChips();
+}
+document.querySelector('.close').addEventListener('click', () => { if (!busy) newGame(); });
+
+// Tap a piece, then a square. Legal moves show as dots.
 squaresEl.addEventListener('click', e => {
-  if (mode !== 'fixing') return;
-  const sq = Object.keys(sqEls).find(k => sqEls[k] === e.target.closest('.sq'));
-  if (!sq) return;
-  if (sq === 'c4') { selected = 'c4'; highlight({ c4: 'hi', d5: 'ring' }); return; }
-  if (sq === 'd5' && (selected === 'c4' || hintBtn.classList.contains('used'))) {
-    arrows([]); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5');
-    setTimeout(() => setMode('solved'), 650);
+  const el = e.target.closest('.sq');
+  if (!el) return;
+  if (previewing) renderLive();
+  if (!canUserMove()) return;
+  const i = Engine.sqIdx(el.dataset.sq);
+  const legal = game.legal();
+  let m = null;
+  if (selected !== null) m = legal.find(x => x.from === selected && x.to === i && (!x.promo || x.promo === 'q'));
+  else if (hintShown && hintMove && i === hintMove.to) m = legal.find(x => Engine.sameMove(x, hintMove));
+  if (m) { selected = null; userMove(m); return; }
+  const p = game.b[i];
+  if (p && p[0] === 'w' && selected !== i) {
+    selected = i;
+    const map = liveHighlights({ [el.dataset.sq]: 'hi' });
+    for (const x of legal) if (x.from === i) addHl(map, sn(x.to), x.cap ? 'cap' : 'dot');
+    highlight(map);
+  } else {
+    selected = null;
+    highlight(liveHighlights());
   }
 });
 
@@ -632,142 +1314,385 @@ const msgs = document.getElementById('msgs');
 const chipsEl = document.getElementById('chips');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
-let started = false, busy = false;
-const asked = new Set();
+let chatStarted = false, chatBusy = false, chatCtx, asked = new Set();
 
 const mv = (t, cls = '') => `<span class="mv ${cls}">${t}</span>`;
+const mvAt = (san, cls, fen, m) => `<span class="mv ${cls}" data-fen="${fen}" data-m="${sn(m.from)}${sn(m.to)}">${san}</span>`;
+function phrase(s) {
+  if (s >= MATE_ZONE) return 'winning';
+  if (s <= -MATE_ZONE) return 'losing';
+  return s > 300 ? 'way ahead' : s > 100 ? 'ahead' : s >= -100 ? 'even' : s >= -300 ? 'behind' : 'way behind';
+}
+const standing = s => phrase(s) === 'even' ? 'the game would be about even' : `you'd be ${phrase(s)}`;
+const pct = s => Math.max(4, Math.min(96, 50 + s / 12));
+const cap1 = s => s[0].toUpperCase() + s.slice(1);
 
-const SCRIPT = {
+/* Hand-written answers for the move-14 demo (used while you're reviewing it) */
+const DEMO_SCRIPT = {
   why: {
-    q: 'Why was this weak?',
     replies: [
       `${mv('Ne5', 'bad')} looks active — I get the appeal! But it walked right past a gift.`,
       `Black's knight on <b>d5</b> had <b>zero defenders</b>, and your bishop on c4 was already aiming at it. Now Black just plays ${mv('…Nf4', 'bad')}, saving the knight <i>and</i> hitting your queen.`
     ],
     board() {
-      showPlayedMove();
-      highlight({ f3: 'hi', e5: 'hi', d5: 'ring', e2: 'hi-red' });
-      arrows([['d5', 'f4', 'red'], ['f4', 'e2', 'red']]);
-    },
-    next: ['best', 'line']
+      const g = new Engine.Game(DEMO_FEN);
+      g.make(g.legal().find(m => sn(m.from) === 'f3' && sn(m.to) === 'e5'));
+      preview(g.fen(), { f3: 'hi', e5: 'hi', d5: 'ring', e2: 'hi-red' }, [['d5', 'f4', 'red'], ['f4', 'e2', 'red']]);
+    }
   },
   best: {
-    q: 'What was the best move?',
     replies: [
       `${mv('Bxd5!', 'ok')} Your bishop takes the knight for free — nothing on Black's side can take back.`,
       `You were down material, so this one capture gets you right back in the game. Rule of thumb: <b>before every move, check for loose pieces</b>.`
     ],
-    eval: true,
-    board() {
-      setPosition(START);
-      highlight({ c4: 'hi', d5: 'ring' });
-      arrows([['c4', 'd5', 'yellow']]);
-    },
-    next: ['line', 'why']
+    evalBar: ['Behind', 'Even', 18, 52],
+    board() { preview(DEMO_FEN, { c4: 'hi', d5: 'ring' }, [['c4', 'd5', 'yellow']]); }
   },
   line: {
-    q: 'Show me the line.',
     replies: [
       `Watch the board 👀 ${mv('14. Bxd5', 'ok')} ${mv('…c6')} ${mv('15. Bb3', 'ok')}`,
       `Black kicks the bishop, it steps back to b3 — and you're a <b>full knight up</b> compared to the game. Want to try playing it yourself?`
     ],
     async board() {
-      setPosition(START); arrows([]); highlight({});
+      preview(DEMO_FEN);
       await wait(500); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5');
       await wait(1100); highlight({ c7: 'hi', c6: 'hi' }); move('c7', 'c6');
       await wait(1100); highlight({ d5: 'hi', b3: 'hi-green' }); move('d5', 'b3');
-    },
-    next: ['try', 'why']
-  },
-  fallback: {
-    replies: [
-      `Great question! Short version: on move 14 the key idea was ${mv('Bxd5', 'ok')} — grabbing Black's undefended knight on d5.`,
-      `Tap <b>“Show me the line”</b> and I'll walk you through what happens next.`
-    ],
-    board() { setPosition(START); highlight({ c4: 'hi', d5: 'ring' }); arrows([['c4', 'd5', 'yellow']]); },
-    next: ['line', 'why']
+    }
   }
 };
-const CHIP_LABEL = { why: 'Why was this weak?', best: 'What was the best move?', line: 'Show me the line.', try: "Let me try it! ♟" };
 
-const wait = ms => new Promise(r => setTimeout(r, ms));
+const CHIP_LABEL = {
+  why: 'Why was this weak?', good: 'Was that a good move?', best: 'What was the best move?', line: 'Show me the line.',
+  now: 'What should I do now?', threat: "What's Black threatening?", eval: "Who's winning?", hanging: 'Are any of my pieces hanging?',
+  castle: 'How does castling work?', try: 'Let me try it! ♟', new: 'Start a new game'
+};
+
+function reasonFor(m, san) {
+  if (san.endsWith('#')) return "It's checkmate!";
+  if (m.promo) return 'Your pawn becomes a queen!';
+  if (m.cap) return `It captures Black's ${PNAME[m.cap[1]]} on ${sn(m.to)}.`;
+  if (m.flag === 'k' || m.flag === 'q') return 'It tucks your king away safely and connects your rooks.';
+  if (san.endsWith('+')) return 'It gives check and keeps Black on the back foot.';
+  if ((m.p[1] === 'n' || m.p[1] === 'b') && m.from >> 4 === 7) return 'It develops a piece toward the center.';
+  if (m.p[1] === 'p' && ['d4', 'e4', 'd5', 'e5', 'c4', 'f4'].includes(sn(m.to))) return 'It grabs space in the center.';
+  return 'By my count, it improves your position the most.';
+}
+function lineChips(fen, moves, sans) {
+  const g = new Engine.Game(fen);
+  return sans.map((s, k) => {
+    const label = g.turn === 'w' ? `${g.full}. ${s}` : `…${s}`;
+    const chip = mvAt(label, g.turn === 'w' ? 'ok' : '', g.fen(), moves[k]);
+    g.make(moves[k]);
+    return chip;
+  }).join(' ');
+}
+async function playLine(fen, moves) {
+  preview(fen);
+  const g = new Engine.Game(fen);
+  for (const m of moves) {
+    await wait(g.stack.length ? 1100 : 500);
+    if (!previewing) return;
+    highlight({ [sn(m.from)]: 'hi', [sn(m.to)]: 'hi' });
+    animateMove(m);
+    g.make(m);
+  }
+}
+
+const RULES = {
+  castle: () => {
+    const can = game.turn === 'w' && game.legal().filter(m => m.flag === 'k' || m.flag === 'q').map(m => m.flag === 'k' ? 'kingside' : 'queenside');
+    return [
+      'Castling moves your king <b>two squares toward a rook</b>, and the rook hops over to the other side of the king. It’s the only move where two pieces move at once!',
+      'You can castle if neither piece has moved yet, the squares between them are empty, and your king isn’t in check, passing through check, or landing in check. ' +
+      (can && can.length ? `Right now you <b>can</b> castle ${can.join(' or ')} — tap your king, then the square two to its side.` : 'You can’t castle right now.')
+    ];
+  },
+  ep: () => ['<b>En passant</b> is a special pawn capture: if an enemy pawn jumps two squares and lands right beside your pawn, you can capture it as if it had moved only one square.', 'You have to do it immediately on your next move, or the chance is gone.'],
+  promo: () => ['When a pawn reaches the far side of the board it <b>promotes</b> — usually to a queen. In this game, your pawns automatically become queens.'],
+  stalemate: () => ['<b>Stalemate</b> is when the player to move has no legal moves but isn’t in check. It’s a draw — so when you’re winning, make sure Black always has a move!'],
+  mate: () => ['<b>Checkmate</b> is when the king is in check and there’s no way out — no escape square, no block, no capture. That ends the game.', 'Check alone just means the king is attacked; you must get out of it right away.'],
+  values: () => ['Rough piece values: pawn <b>1</b>, knight <b>3</b>, bishop <b>3</b>, rook <b>5</b>, queen <b>9</b>. The king is priceless!', 'Use them to decide if a trade is worth it.'],
+  opening: () => ['Opening tips: <b>control the center</b> with pawns, <b>develop</b> your knights and bishops, and <b>castle early</b>.', 'Try not to move the same piece twice or bring your queen out too soon.'],
+  draw: () => ['Games can be drawn by stalemate, three repetitions of the same position, 50 moves without a capture or pawn move, or when neither side has enough pieces left to checkmate.'],
+  p: () => ['Pawns move <b>forward one square</b> (or two on their first move) but <b>capture diagonally</b>. They can never move backward.'],
+  n: () => ['Knights move in an <b>L-shape</b>: two squares one way, then one square to the side. They’re the only piece that can jump over others!'],
+  b: () => ['Bishops move <b>diagonally</b> as far as they like, so each one stays on its starting color forever.'],
+  r: () => ['Rooks move in <b>straight lines</b> — up, down, left or right — as far as the path is clear.'],
+  q: () => ['The queen combines a rook and a bishop: <b>any direction, any distance</b>. She’s your strongest piece, so keep her safe!'],
+  k: () => ['The king moves <b>one square in any direction</b>, and can never move into check. Protect him at all costs!']
+};
+
+function answer(key) {
+  const a = latestReview();
+  if (a && a.demo && DEMO_SCRIPT[key] && (mode === 'review' || mode === 'fixing')) {
+    const s = DEMO_SCRIPT[key];
+    return { replies: s.replies, board: () => s.board(), evalBar: s.evalBar };
+  }
+  if (RULES[key]) return { replies: RULES[key]() };
+  switch (key) {
+    case 'why': case 'good': {
+      if (!a) return { replies: ["You haven't made a move yet! Play one and I'll tell you what I think."] };
+      const played = mvAt(a.san, isMistake(a) ? 'bad' : 'ok', a.fenBefore, a.move);
+      const best = mvAt(a.bestSan, 'ok', a.fenBefore, a.best);
+      const board = () => preview(a.fenAfter, { [sn(a.move.from)]: 'hi', [sn(a.move.to)]: 'hi' },
+        isMistake(a) && a.replyPv[0] ? [[sn(a.replyPv[0].from), sn(a.replyPv[0].to), 'red']] : []);
+      if (!isMistake(a)) {
+        return {
+          replies: [
+            a.isBest ? `${played} was the best move here — exactly what I'd have played! 🎯` : `${played} was a good move. My top pick was ${best}, but they're very close.`,
+            reasonFor(a.move, a.san)
+          ], board
+        };
+      }
+      const r = [];
+      const reply = a.replyPv[0] ? mvAt(a.replyLine[0], 'bad', a.fenAfter, a.replyPv[0]) : '';
+      const h = hangs(a);
+      if (a.played <= -MATE_ZONE) r.push(`Ouch — after ${played}, Black has a forced checkmate starting with ${reply}.`);
+      else if (h) r.push(`${played} leaves your ${PNAME[h.piece]} on <b>${h.sq}</b> unprotected. Black can answer ${reply} and win it.`);
+      else r.push(`${played} isn't a disaster, but it gives Black an easy game${reply ? ` — ${reply} is a strong reply` : ''}.`);
+      if (a.bestScore >= MATE_ZONE) r.push(`And you had a checkmate! ${best} starts it.`);
+      else if (a.best.cap && !a.move.cap) r.push(`There was a ${PNAME[a.best.cap[1]]} to capture with ${best}. Rule of thumb: <b>before every move, check for captures</b>.`);
+      else if (a.best.flag === 'k' || a.best.flag === 'q') r.push(`Castling with ${best} would have tucked your king away safely.`);
+      else r.push(`${best} was stronger — it's worth about <b>${(a.loss / 100).toFixed(1)}</b> pawns more.`);
+      return { replies: r, board };
+    }
+    case 'best': {
+      if (!a) return { replies: ['Make a move first, then I can compare it to the best one!'] };
+      const best = mvAt(a.bestSan, 'ok', a.fenBefore, a.best);
+      const board = () => preview(a.fenBefore, { [sn(a.best.from)]: 'hi', [sn(a.best.to)]: 'ring' }, [[sn(a.best.from), sn(a.best.to), 'yellow']]);
+      if (a.isBest) return { replies: [`You already found it — ${best} was the best move! 🎉`, reasonFor(a.best, a.bestSan)], board };
+      return {
+        replies: [`${best} — ${reasonFor(a.best, a.bestSan).replace(/^It /, 'it ')}`,
+          phrase(a.played) === phrase(a.bestScore)
+            ? `The difference is about <b>${(a.loss / 100).toFixed(1)}</b> pawns — small things add up!`
+            : `With it, ${standing(a.bestScore)}. After your move, you were ${phrase(a.played)}.`],
+        evalBar: [cap1(phrase(a.played)), cap1(phrase(a.bestScore)), pct(a.played), pct(a.bestScore)],
+        board
+      };
+    }
+    case 'line': {
+      if (!a) return { replies: ['Make a move first and I’ll show you how the game could go.'] };
+      const useBest = isMistake(a);
+      const moves = useBest ? a.bestPv : [a.move, ...a.replyPv].slice(0, 5);
+      const sans = useBest ? a.bestLine : [a.san, ...a.replyLine].slice(0, 5);
+      return {
+        replies: [`Watch the board 👀 ${lineChips(a.fenBefore, moves, sans)}`,
+          useBest ? `That's the line with best play — ${standing(a.bestScore)}.${canFix() ? ' Want to try playing it yourself?' : ''}`
+                  : `That's how the game could continue — ${standing(a.played)}.`],
+        board: () => playLine(a.fenBefore, moves)
+      };
+    }
+    case 'now': {
+      if (mode === 'over') return { replies: ['The game’s over! Tap NEW GAME to play again.'] };
+      if (game.turn !== 'w' || busy) return { replies: ['Hang on — Black is still thinking. 🤔'] };
+      const r = Engine.search(game, SEARCH);
+      const san = game.san(r.move);
+      return {
+        replies: [`I like ${mvAt(san, 'ok', game.fen(), r.move)} here.`, reasonFor(r.move, san) + ' Tap the square the arrow points to if you want to play it.'],
+        board: () => {
+          if (previewing) renderLive();
+          hintMove = r.move; hintShown = true; hintBtn.classList.add('used');
+          highlight(liveHighlights({ [sn(r.move.from)]: 'hi' }));
+          arrows([[sn(r.move.from), sn(r.move.to), 'yellow']]);
+        }
+      };
+    }
+    case 'threat': {
+      if (mode === 'over') return { replies: ['The game’s over — no more threats! 😄'] };
+      if (game.turn !== 'w') return { replies: ['Black is thinking — ask me again in a second!'] };
+      if (game.inCheck()) {
+        const k = game.kings.w, ch = game.attackers(k, 'b')[0];
+        return {
+          replies: [`You're in <b>check</b> from the ${PNAME[game.b[ch][1]]} on ${sn(ch)}!`, 'You have to deal with it now: move your king, block the check, or capture the attacker.'],
+          board: () => { renderLive(); arrows([[sn(ch), sn(k), 'red']]); }
+        };
+      }
+      const f = game.fen().split(' '); f[1] = 'b'; f[3] = '-';
+      const g = new Engine.Game(f.join(' '));
+      const base = g.evaluate();
+      const r = Engine.search(g, REPLY_SEARCH);
+      if (!r.move) return { replies: ['Black has no real moves to make — no threats!'] };
+      const san = g.san(r.move), chip = mvAt(san, 'bad', g.fen(), r.move);
+      const board = () => { renderLive(); arrows([[sn(r.move.from), sn(r.move.to), 'red']]); };
+      if (r.score >= MATE_ZONE) return { replies: [`Black is threatening <b>checkmate</b> with ${chip}! Find a way to stop it.`], board };
+      if (r.move.cap && r.score - base > 80) return { replies: [`Black wants to play ${chip}, winning your ${PNAME[r.move.cap[1]]} on ${sn(r.move.to)}.`, 'Protect it, move it, or create a bigger threat of your own!'], board };
+      return { replies: [`No big threats right now. 👍 Black's best idea is ${chip}, but it doesn't win anything yet.`], board };
+    }
+    case 'eval': {
+      const s = mode === 'over' ? (game.status() === 'checkmate' ? (game.turn === 'b' ? Engine.MATE : -Engine.MATE) : 0)
+        : game.turn === 'w' && !busy ? Engine.search(game, REPLY_SEARCH).score : lastEval;
+      if (mode !== 'over') setTag(s);
+      const mw = game.material('w'), mb = game.material('b');
+      return {
+        replies: [phrase(s) === 'even' ? "It's about <b>even</b> right now." : `Right now you're <b>${phrase(s)}</b>.`,
+          `Material: you have <b>${mw}</b> points, Black has <b>${mb}</b>. ` +
+          (mw > mb ? 'When you’re ahead, trading pieces makes your edge count.' : mw < mb ? 'Look for tactics to win material back.' : 'Focus on developing and keeping your king safe.')],
+        evalBar: ['Black', 'White', 50, pct(s)]
+      };
+    }
+    case 'hanging': {
+      const loose = [];
+      for (let i = 0; i < 120; i++) {
+        if (i & 0x88) { i += 7; continue; }
+        const p = game.b[i];
+        if (!p || p[0] !== 'w' || p[1] === 'k') continue;
+        const atk = game.attackers(i, 'b');
+        if (!atk.length) continue;
+        const cheapest = Math.min(...atk.map(s => Engine.VAL[game.b[s][1]] || 1000));
+        if (!game.attackers(i, 'w').length || cheapest < Engine.VAL[p[1]]) loose.push(i);
+      }
+      if (!loose.length) return { replies: ['All your pieces are safe right now. 👍', 'Keep checking after every move — it’s the #1 habit of strong players.'] };
+      return {
+        replies: [`Careful: ${loose.map(i => `your ${PNAME[game.b[i][1]]} on <b>${sn(i)}</b>`).join(', ')} ${loose.length > 1 ? 'are' : 'is'} under attack and not safely defended.`],
+        board: () => { renderLive(); highlight(liveHighlights(Object.fromEntries(loose.map(i => [sn(i), 'hi-red'])))); }
+      };
+    }
+    case 'new': return { replies: ['Fresh board coming up! You’re White — good luck. ♟'], after: newGame };
+    case 'undo': return { replies: ['Sure — taking that back.'], after: () => undoBtn.click() };
+  }
+  return {
+    replies: ["Hmm, I'm not sure about that one. 🤔",
+      'Try asking me about your last move, the best move, what Black is threatening, who’s winning, or rules like castling and en passant.']
+  };
+}
+
+function route(text) {
+  const t = text.toLowerCase();
+  if (/(new game|restart|start over|play again)/.test(t)) return 'new';
+  if (/(take ?back|undo)/.test(t)) return 'undo';
+  if (/\bwhy\b/.test(t) && !/castl|passant|promot/.test(t)) return 'why';
+  if (/castl/.test(t)) return 'castle';
+  if (/passant/.test(t)) return 'ep';
+  if (/promot/.test(t)) return 'promo';
+  if (/stalemate/.test(t)) return 'stalemate';
+  if (/(draw|repetition|50.move|fifty)/.test(t)) return 'draw';
+  if (/(worth|value|points)/.test(t) && !/winning/.test(t)) return 'values';
+  if (/(opening|how (do|should) i start|tips)/.test(t)) return 'opening';
+  const pm = t.match(/(how|where|can).*\b(pawn|knight|bishop|rook|queen|king)s?\b|\b(pawn|knight|bishop|rook|queen|king)s? (move|go)/);
+  if (pm) return { pawn: 'p', knight: 'n', bishop: 'b', rook: 'r', queen: 'q', king: 'k' }[pm[2] || pm[3]];
+  if (/(threat|threaten|attacking me|danger|watch out|check\b)/.test(t)) return 'threat';
+  if (/(checkmate|what is mate)/.test(t)) return 'mate';
+  if (/(winning|losing|who.?s ahead|score|eval|am i (ahead|behind))/.test(t)) return 'eval';
+  if (/(hang|loose|undefended|safe)/.test(t)) return 'hanging';
+  if (/(what should i|what now|what do i do|hint|help me|my move|suggest|what can i)/.test(t)) return 'now';
+  if (/(line|show|then|after|next|continu|play out)/.test(t)) return 'line';
+  if (/(best|better|should have|instead|right move|correct)/.test(t)) return 'best';
+  if (/(weak|wrong|bad|mistake|blunder|good move|was that|how did i)/.test(t)) return 'why';
+  return 'fallback';
+}
+
+function contextChips() {
+  const a = latestReview();
+  if (mode === 'over') return ['new', 'eval'];
+  let list = a && a.demo && isMistake(a) && mode !== 'play' ? ['why', 'best', 'line']
+    : isMistake(a) ? ['why', 'best', 'line', 'threat']
+    : a ? ['good', 'now', 'threat', 'eval']
+    : ['now', 'castle', 'eval'];
+  list = list.filter(k => !asked.has(k));
+  if (isMistake(a) && (asked.has('best') || asked.has('line')) && canFix()) list.unshift('try');
+  if (!list.length) list = ['now', 'hanging', 'eval'].filter(k => !asked.has(k));
+  if (!list.length) list = ['now', 'threat'];
+  return list.slice(0, 4);
+}
+function contextLine() {
+  const a = latestReview();
+  const icon = '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="none" stroke="#8fa3ad" stroke-width="2"/><path d="M7 4v3.3l2 1.4" stroke="#8fa3ad" stroke-width="2" fill="none" stroke-linecap="round"/></svg> ';
+  return icon + (a ? `Reviewing move ${a.moveNo} — your ${PNAME[a.move.p[1]]} on ${sn(a.move.to)}` : 'Live game — you’re playing White');
+}
+
 function scrollDown() { msgs.scrollTo({ top: msgs.scrollHeight, behavior: 'smooth' }); }
-function addSys(html) { const d = document.createElement('div'); d.className = 'sys'; d.innerHTML = html; msgs.appendChild(d); }
+function addSys(html) { const d = document.createElement('div'); d.className = 'sys'; d.innerHTML = html; msgs.appendChild(d); scrollDown(); }
 function addMsg(who, html) {
   const d = document.createElement('div');
   d.className = 'msg ' + who; d.innerHTML = html;
   msgs.appendChild(d); scrollDown(); return d;
 }
-async function oscarSays(text, delay = 900) {
+function addTyping() {
   const t = addMsg('o', '<div class="typing"><span></span><span></span><span></span></div>');
   t.style.padding = '0';
-  await wait(delay);
-  t.style.padding = ''; t.innerHTML = text;
+  return t;
+}
+function fillTyping(t, html) {
+  t.style.padding = ''; t.innerHTML = html;
   t.style.animation = 'none'; t.offsetHeight; t.style.animation = '';
   scrollDown();
+}
+async function oscarSays(html, delay = 900) { const t = addTyping(); await wait(delay); fillTyping(t, html); }
+function addEvalBar([left, right, from, to]) {
+  const e = document.createElement('div'); e.className = 'eval';
+  e.innerHTML = `${left} <span class="bar"><i style="width:${from}%"></i></span> ${right}`;
+  msgs.appendChild(e); scrollDown();
+  requestAnimationFrame(() => requestAnimationFrame(() => e.querySelector('i').style.width = to + '%'));
 }
 function setChips(keys) {
   chipsEl.innerHTML = '';
   keys.forEach((k, i) => {
     const b = document.createElement('button');
-    b.className = 'chip' + (k === 'try' ? ' go' : '');
+    b.className = 'chip' + (k === 'try' || k === 'new' ? ' go' : '');
     b.textContent = CHIP_LABEL[k];
     b.style.animationDelay = (i * 60) + 'ms';
     b.onclick = () => k === 'try' ? tryIt() : ask(k);
     chipsEl.appendChild(b);
   });
 }
-
-async function ask(key, typed) {
-  if (busy) return;
-  busy = true; chipsEl.innerHTML = '';
-  const s = SCRIPT[key];
-  addMsg('u', typed || s.q);
-  asked.add(key);
-  await wait(250);
-  const boardDone = s.board();
-  for (let i = 0; i < s.replies.length; i++) await oscarSays(s.replies[i], i === 0 ? 1000 : 1300);
-  if (s.eval) {
-    await wait(200);
-    const e = document.createElement('div'); e.className = 'eval';
-    e.innerHTML = 'Behind <span class="bar"><i></i></span> Even';
-    msgs.appendChild(e); scrollDown();
-    requestAnimationFrame(() => requestAnimationFrame(() => e.querySelector('i').style.width = '52%'));
-  }
-  await boardDone;
-  const nxt = s.next.filter(k => k === 'try' || !asked.has(k));
-  setChips(nxt.length ? nxt : ['try']);
-  busy = false;
+// Keep the chat in sync with the game: note new moves and refresh suggestions
+function chatNote(text) { if (chatStarted) addSys(text); }
+function refreshChips() {
+  if (!chatStarted || chatBusy) return;
+  const a = latestReview();
+  if (a !== chatCtx) { chatCtx = a; asked.clear(); }
+  setChips(contextChips());
 }
 
-function route(text) {
-  const t = text.toLowerCase();
-  if (/(line|show|then|after|next|continu|play out)/.test(t)) return 'line';
-  if (/(best|better|should|instead|right move|correct)/.test(t)) return 'best';
-  if (/(why|weak|wrong|bad|mistake|blunder|ne5|knight)/.test(t)) return 'why';
-  return 'fallback';
+async function ask(key, typed) {
+  if (chatBusy) return;
+  chatBusy = true; chipsEl.innerHTML = '';
+  addMsg('u', typed || CHIP_LABEL[key]);
+  asked.add(key);
+  await wait(250);
+  const t = addTyping();
+  await wait(60);
+  const ans = answer(key);
+  const boardDone = ans.board ? ans.board() : null;
+  await wait(900);
+  fillTyping(t, ans.replies[0]);
+  for (const r of ans.replies.slice(1)) await oscarSays(r, 1200);
+  if (ans.evalBar) { await wait(200); addEvalBar(ans.evalBar); }
+  await boardDone;
+  chatBusy = false;
+  if (ans.after) ans.after();
+  refreshChips();
 }
 
 function openChat() {
   phone.classList.add('chat-open');
-  if (!started) {
-    started = true;
+  if (!chatStarted) {
+    chatStarted = true;
+    chatCtx = latestReview();
     setTimeout(async () => {
-      addSys('<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="none" stroke="#8fa3ad" stroke-width="2"/><path d="M7 4v3.3l2 1.4" stroke="#8fa3ad" stroke-width="2" fill="none" stroke-linecap="round"/></svg> Reviewing move 14 — your knight on e5');
-      await oscarSays("Hey! Let's look at this one together. What do you want to know? 🤔", 800);
-      setChips(['why', 'best', 'line']);
+      addSys(contextLine());
+      await oscarSays(chatCtx ? "Hey! Let's look at this one together. What do you want to know? 🤔"
+                              : "Hey! I'm watching your game. Ask me about your moves, threats, or the rules. 🤔", 800);
+      setChips(contextChips());
     }, 450);
+  } else if (latestReview() !== chatCtx) {
+    addSys(contextLine());
+    refreshChips();
   }
 }
 function closeChat() {
   phone.classList.remove('chat-open');
   input.blur();
+  if (previewing) renderLive();
 }
 function tryIt() {
   closeChat();
   setTimeout(() => {
-    setMode('fixing');
-    coachText.textContent = 'Your turn — find the capture!';
+    if (!canFix()) return;
+    const a = latestReview();
+    enterFix();
+    coach(a.best.cap ? 'Your turn — find the capture!' : 'Your turn — find the better move!');
   }, 300);
 }
 
@@ -777,21 +1702,30 @@ input.addEventListener('input', () => sendBtn.disabled = !input.value.trim());
 document.getElementById('composer').addEventListener('submit', e => {
   e.preventDefault();
   const v = input.value.trim();
-  if (!v || busy) return;
+  if (!v || chatBusy) return;
   input.value = ''; sendBtn.disabled = true;
-  ask(route(v), v.replace(/</g, '&lt;'));
+  ask(route(v), v.replace(/&/g, '&amp;').replace(/</g, '&lt;'));
 });
+// Tap a move tag in a bubble to see it on the board
 msgs.addEventListener('click', e => {
   const m = e.target.closest('.mv');
   if (!m) return;
+  if (m.dataset.fen) {
+    const f = m.dataset.m.slice(0, 2), t = m.dataset.m.slice(2, 4);
+    preview(m.dataset.fen, { [f]: 'hi', [t]: 'hi' }, [[f, t, m.classList.contains('bad') ? 'red' : 'yellow']]);
+    return;
+  }
   const txt = m.textContent;
-  if (/Bxd5/.test(txt)) { setPosition(START); highlight({ c4: 'hi', d5: 'ring' }); arrows([['c4', 'd5', 'yellow']]); }
-  else if (/Nf4/.test(txt)) { showPlayedMove(); arrows([['d5', 'f4', 'red'], ['f4', 'e2', 'red']]); }
-  else if (/Ne5/.test(txt)) { showPlayedMove(); arrows([['f3', 'e5', 'red']]); }
+  if (/Bxd5/.test(txt)) preview(DEMO_FEN, { c4: 'hi', d5: 'ring' }, [['c4', 'd5', 'yellow']]);
+  else if (/Nf4|Ne5/.test(txt)) DEMO_SCRIPT.why.board();
 });
 
-/* ?chat=1 opens the sheet directly (handy for screenshots) */
-if (new URLSearchParams(location.search).get('chat')) openChat();
+/* ============ Start ============
+   ?new=1 starts a fresh game from the opening; ?chat=1 opens Oscar right away */
+const params = new URLSearchParams(location.search);
+if (params.get('new')) newGame(); else loadDemo();
+fitVerdict();
+if (params.get('chat')) openChat();
 </script>
 </body>
 </html>
