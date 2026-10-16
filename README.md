@@ -5,7 +5,7 @@ Interactive, single-file mockup (`index.html`) of an **"Ask Oscar"** AI coach in
 ## What it does
 The page is a real, playable game of chess against a built-in engine, wrapped in Duolingo's "Review your game" screen. Oscar answers questions using live analysis of the actual position, not canned text.
 
-**Opening screen (the slide demo).** It loads on the move-14 review: you played `Ne5`, and Oscar notes that "There was a chance to capture here."
+**Move-14 review demo** (open with `?demo=1`; the plain link starts a fresh game): you played `Ne5`, and Oscar notes that "There was a chance to capture here."
 - **FIX MOVE** rewinds the board. **HINT** draws the best move (`Bxd5`) as an arrow. Play it to get **Best move!**, then tap **PLAY ON** to keep playing from there.
 - The redo arrow (→) instead continues the game as originally played.
 
@@ -17,7 +17,7 @@ The page is a real, playable game of chess against a built-in engine, wrapped in
 The tag at the top (WAY AHEAD … WAY BEHIND) tracks the evaluation.
 - If your move had a better alternative, the button becomes **FIX MOVE**. Otherwise it's a grey **HINT**.
 - The ← and → arrows take moves back and replay them.
-- **X** starts a new game from the opening position, and so does `?new=1`.
+- **X** starts a new game from the opening position.
 - When the game ends (checkmate, stalemate or any draw), the button becomes **NEW GAME**.
 
 **Ask Oscar.** The chat follows the game and suggests questions that fit the moment. You can also type questions in plain English:

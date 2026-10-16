@@ -934,7 +934,7 @@ function arrows(list = []) {
 /* ============ Game state ============
    You always play White against the engine (Black).
    Default load is the move-14 review demo: you played Ne5, but Black's
-   knight on d5 was undefended — 14.Bxd5! wins it. ?new=1 starts a fresh game. */
+   knight on d5 was undefended — 14.Bxd5! wins it. Shown with ?demo=1. */
 const DEMO_FEN = 'r1q2rk1/pppb1pp1/3b3p/3n4/2BP4/5N1P/PPPBQPP1/4R1K1 w - - 0 14';
 const SEARCH = { maxDepth: 4, timeMs: 600 };       // coach: best move
 const REPLY_SEARCH = { maxDepth: 3, timeMs: 400 }; // coach: Black's answer to your move
@@ -1721,9 +1721,9 @@ msgs.addEventListener('click', e => {
 });
 
 /* ============ Start ============
-   ?new=1 starts a fresh game from the opening; ?chat=1 opens Oscar right away */
+   Opens on a fresh game; ?demo=1 loads the move-14 review demo; ?chat=1 opens Oscar right away */
 const params = new URLSearchParams(location.search);
-if (params.get('new')) newGame(); else loadDemo();
+if (params.get('demo')) loadDemo(); else newGame();
 fitVerdict();
 if (params.get('chat')) openChat();
 </script>
