@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ask Oscar</title>
+<meta name="description" content="Interactive mockup of an 'Ask Oscar' AI chess coach inside Duolingo Chess game review.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #131f24;
+    --bg-2: #1a272d;
+    --sheet: #18252b;
+    --line: #37464f;
+    --text: #f1f7fb;
+    --muted: #8fa3ad;
+    --sq-dark: #1a262c;
+    --sq-light: #25343b;
+    --sq-hi: #4d4537;
+    --green: #93d333;
+    --green-d: #6fa524;
+    --green-txt: #93d333;
+    --yellow: #ffc800;
+    --yellow-d: #d9a600;
+    --orange: #e5a24a;
+    --red: #ff4b4b;
+    --blue: #1cb0f6;
+    --blue-d: #1899d6;
+    --pink: #f6a6d4;
+    --board: 390px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(1200px 700px at 50% 0%, #26343b 0%, #0b1114 70%);
+    font-family: "Nunito", system-ui, sans-serif;
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+
+  /* ---------- Phone ---------- */
+  .device {
+    padding: 12px; border-radius: 66px;
+    background: linear-gradient(145deg, #3a4246, #15191b 40%, #2a3033);
+    box-shadow: 0 40px 90px rgba(0,0,0,.55), inset 0 0 0 2px #4b5559;
+  }
+  .phone {
+    position: relative; width: 390px; height: 844px; overflow: hidden;
+    border-radius: 54px; background: var(--bg);
+    user-select: none;
+  }
+  @media (max-width: 500px) {
+    body { padding: 0; background: var(--bg); align-items: stretch; }
+    .device { padding: 0; border-radius: 0; background: none; box-shadow: none; width: 100%; }
+    .phone { width: 100%; height: 100dvh; min-height: 640px; border-radius: 0; }
+    .island { display: none; }
+    :root { --board: 100vw; }
+  }
+
+  /* Status bar */
+  .status {
+    position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 30;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 30px 0 46px; font-weight: 700; font-size: 17px; letter-spacing: -.2px;
+    font-family: -apple-system, "SF Pro Text", "Nunito", sans-serif;
+  }
+  .status .icons { display: flex; gap: 7px; align-items: center; }
+  .island {
+    position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+    width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 31;
+  }
+
+  /* Top bar */
+  .topbar {
+    position: absolute; top: 54px; left: 0; right: 0; height: 48px;
+    display: flex; align-items: center; gap: 14px; padding: 0 18px 0 16px;
+  }
+  .close { width: 30px; height: 30px; display: grid; place-items: center; }
+  .progress {
+    flex: 1; height: 17px; border-radius: 10px; background: #37464f; position: relative; overflow: hidden;
+  }
+  .progress .fill {
+    position: absolute; inset: 0 auto 0 0; width: 26%; border-radius: 10px;
+    background: var(--green);
+  }
+  .progress .fill::after {
+    content: ""; position: absolute; left: 8px; right: 8px; top: 4px; height: 4px; border-radius: 4px;
+    background: rgba(255,255,255,.28);
+  }
+  .progress .dot { position: absolute; top: 5.5px; width: 6px; height: 6px; border-radius: 50%; background: rgba(19,31,36,.55); }
+  .energy { display: flex; align-items: center; gap: 6px; color: var(--red); font-weight: 900; font-size: 19px; }
+
+  /* Main content */
+  .content { position: absolute; top: 102px; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }
+  .header {
+    flex: none; overflow: hidden; max-height: 320px; opacity: 1;
+    transition: max-height .45s cubic-bezier(.3,.8,.3,1), opacity .25s;
+  }
+  .phone.chat-open .header { max-height: 0; opacity: 0; }
+  .tag {
+    margin: 10px 20px 0; display: flex; align-items: center; gap: 8px;
+    color: var(--red); font-weight: 900; font-size: 17px; letter-spacing: .8px;
+  }
+  .title { margin: 12px 20px 0; font-size: 25px; font-weight: 900; letter-spacing: -.2px; }
+  .coach-row { display: flex; align-items: flex-end; gap: 6px; padding: 6px 16px 0 14px; height: 124px; }
+  .coach-row .oscar { width: 108px; height: 124px; flex: none; }
+  .bubble {
+    position: relative; align-self: center; margin-bottom: 16px;
+    border: 2px solid var(--line); border-radius: 16px; padding: 14px 16px;
+    font-size: 17px; line-height: 1.4; font-weight: 600; color: #e9f1f5; flex: 1;
+  }
+  .bubble::before, .bubble::after {
+    content: ""; position: absolute; left: -12px; top: 50%; margin-top: 2px;
+    border: 7px solid transparent; border-right: 12px solid var(--line); border-left: 0;
+  }
+  .bubble::after { left: -8px; border-right-color: var(--bg); }
+
+  /* Board */
+  .board-wrap {
+    flex: none; display: flex; justify-content: center; padding-top: 0;
+    transition: padding .45s cubic-bezier(.3,.8,.3,1);
+  }
+  .phone.chat-open .board-wrap { padding-top: 8px; }
+  .board {
+    position: relative; width: var(--board); height: var(--board);
+    transition: width .45s cubic-bezier(.3,.8,.3,1), height .45s cubic-bezier(.3,.8,.3,1), border-radius .45s;
+    overflow: hidden;
+  }
+  .phone.chat-open .board { width: 268px; height: 268px; border-radius: 12px; }
+  .squares { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); }
+  .sq { background: var(--sq-dark); position: relative; transition: background .3s; }
+  .sq.l { background: var(--sq-light); }
+  .sq.hi { background: var(--sq-hi); }
+  .sq.hi-red { background: #6b3236; }
+  .sq.hi-green { background: #3f5a25; }
+  .piece {
+    position: absolute; width: 12.5%; height: 12.5%; left: 0; top: 0;
+    transition: transform .55s cubic-bezier(.4,.1,.2,1), opacity .3s;
+    z-index: 2; pointer-events: none;
+  }
+  .piece svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .piece.w { --pc: #e4ecf0; --ps: #9fb2bc; --pd: #8aa0ab; --po: transparent; }
+  .piece.b { --pc: #41606b; --ps: #2c414a; --pd: #26363d; --po: #7393a0; }
+  .piece .main { fill: var(--pc); stroke: var(--po); stroke-width: 3.5; stroke-linejoin: round; }
+  .piece .shade { fill: var(--ps); stroke: var(--po); stroke-width: 3.5; stroke-linejoin: round; }
+  .piece .det { fill: var(--pd); }
+  .piece .det-s { fill: none; stroke: var(--pd); stroke-width: 4.5; stroke-linecap: round; }
+  .piece .gloss { fill: #fff; opacity: .55; }
+  .piece.b .gloss { opacity: .12; }
+  .piece.lift { z-index: 5; }
+  .piece.gone { opacity: 0; }
+  .arrows { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+  .arrows .arr { opacity: 0; animation: arrIn .45s .05s forwards; }
+  @keyframes arrIn { from { opacity: 0; } to { opacity: 1; } }
+  .sq .ring {
+    position: absolute; inset: 8%; border-radius: 50%; border: 3px solid var(--red); opacity: .9;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { transform: scale(.88); opacity: .55; } }
+
+  /* Feedback footer */
+  .footer { margin-top: auto; padding: 0 16px 30px; }
+  .verdict-row { display: flex; align-items: center; justify-content: space-between; height: 58px; }
+  .verdict { font-size: 25px; font-weight: 900; color: var(--orange); letter-spacing: -.2px; transition: color .3s; }
+  .verdict.good { color: var(--green-txt); }
+  .ask-btn {
+    display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 5px;
+    border-radius: 22px; background: var(--blue); color: #fff;
+    font-weight: 900; font-size: 14px; letter-spacing: .6px;
+    box-shadow: 0 4px 0 var(--blue-d), 0 10px 22px rgba(28,176,246,.28);
+    position: relative; transform: translateY(-2px);
+    animation: bob 2.6s ease-in-out infinite;
+  }
+  .ask-btn:active { transform: translateY(2px); box-shadow: 0 0 0 var(--blue-d); }
+  .ask-btn .av { width: 34px; height: 34px; border-radius: 50%; background: #fbd3ea; overflow: hidden; display: grid; place-items: end center; }
+  .ask-btn .av svg { width: 40px; height: 44px; margin-bottom: -6px; }
+  .ask-btn .spark {
+    position: absolute; top: -7px; right: -5px; background: var(--yellow); color: #4b3800;
+    font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 8px; letter-spacing: .4px;
+    box-shadow: 0 2px 0 var(--yellow-d);
+  }
+  @keyframes bob { 0%,100% { transform: translateY(-2px); } 50% { transform: translateY(-5px); } }
+
+  .actions { display: flex; gap: 10px; align-items: stretch; }
+  .btn {
+    height: 52px; border-radius: 16px; font-weight: 900; font-size: 16px; letter-spacing: .9px;
+    display: grid; place-items: center; transition: transform .08s;
+  }
+  .btn:active { transform: translateY(3px); }
+  .btn.icon { width: 56px; flex: none; border: 2.5px solid var(--orange); box-shadow: 0 3px 0 #a8742f; color: var(--orange); }
+  .btn.hint { flex: 0 0 96px; border: 2.5px solid var(--line); box-shadow: 0 3px 0 var(--line); color: #c4d3da; display: flex; gap: 6px; justify-content: center; align-items: center; font-size: 15px; }
+  .btn.primary { flex: 1; background: var(--yellow); color: #2d2500; box-shadow: 0 4px 0 var(--yellow-d); }
+  .footer.good .btn.icon { border-color: var(--green); box-shadow: 0 3px 0 var(--green-d); color: var(--green); }
+  .footer.good .btn.primary { background: var(--green); box-shadow: 0 4px 0 var(--green-d); color: #12230a; }
+
+  .home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 136px; height: 5px; border-radius: 3px; background: #fff; z-index: 40; }
+
+  /* ---------- Chat sheet ---------- */
+  .scrim { position: absolute; inset: 0; background: rgba(5,10,12,.0); pointer-events: none; transition: background .35s; z-index: 18; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; top: 386px; z-index: 20;
+    background: var(--sheet); border-radius: 26px 26px 0 0;
+    border-top: 2px solid var(--line);
+    box-shadow: 0 -18px 40px rgba(0,0,0,.35);
+    transform: translateY(105%); transition: transform .48s cubic-bezier(.25,.9,.3,1);
+    display: flex; flex-direction: column;
+  }
+  .phone.chat-open .sheet { transform: translateY(0); }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: #3c4c55; margin: 9px auto 0; flex: none; }
+  .sheet-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px 10px; border-bottom: 2px solid #22323a; flex: none; }
+  .sheet-head .av { width: 42px; height: 42px; border-radius: 50%; background: #fbd3ea; overflow: hidden; display: grid; place-items: end center; flex: none; }
+  .sheet-head .av svg { width: 50px; height: 55px; margin-bottom: -8px; }
+  .sheet-head .name { font-weight: 900; font-size: 17px; }
+  .sheet-head .sub { font-size: 13px; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+  .sheet-head .sub i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  .sheet-head .x { margin-left: auto; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: #22323a; }
+
+  .msgs { flex: 1; overflow-y: auto; padding: 12px 14px 6px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: none; }
+  .msgs::-webkit-scrollbar { display: none; }
+  .sys {
+    align-self: center; font-size: 12.5px; font-weight: 800; color: var(--muted);
+    background: #22323a; border-radius: 12px; padding: 6px 12px; display: flex; gap: 6px; align-items: center;
+    letter-spacing: .1px;
+  }
+  .msg { max-width: 82%; padding: 10px 14px; border-radius: 18px; font-size: 15.5px; line-height: 1.4; font-weight: 600; animation: pop .32s cubic-bezier(.3,1.4,.5,1); }
+  .msg.o { align-self: flex-start; background: #22333b; border: 2px solid #2f414a; border-bottom-left-radius: 6px; color: #e8f0f4; }
+  .msg.u { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 6px; box-shadow: 0 3px 0 var(--blue-d); font-weight: 700; }
+  .msg b { font-weight: 900; color: #fff; }
+  .msg .mv {
+    display: inline-block; font-weight: 900; padding: 0 7px; border-radius: 7px; line-height: 1.45;
+    background: rgba(255,200,0,.16); color: var(--yellow); cursor: pointer;
+  }
+  .msg .mv.bad { background: rgba(255,75,75,.16); color: #ff7b7b; }
+  .msg .mv.ok { background: rgba(147,211,51,.16); color: var(--green); }
+  .o-row { display: flex; align-items: flex-end; gap: 6px; }
+  @keyframes pop { from { transform: scale(.85) translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .typing { display: flex; gap: 4px; padding: 14px 16px; }
+  .typing span { width: 7px; height: 7px; border-radius: 50%; background: #7d939d; animation: blink 1s infinite; }
+  .typing span:nth-child(2) { animation-delay: .15s; }
+  .typing span:nth-child(3) { animation-delay: .3s; }
+  @keyframes blink { 0%,60%,100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+
+  .eval {
+    align-self: flex-start; display: flex; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 800; color: var(--muted);
+    animation: pop .32s cubic-bezier(.3,1.4,.5,1); margin-left: 2px;
+  }
+  .eval .bar { width: 120px; height: 8px; border-radius: 4px; background: #37464f; overflow: hidden; position: relative; }
+  .eval .bar i { position: absolute; inset: 0 auto 0 0; background: var(--green); border-radius: 4px; transition: width 1s .2s cubic-bezier(.3,.8,.3,1); width: 18%; }
+
+  .chips { display: flex; gap: 8px; padding: 8px 14px 6px; overflow-x: auto; flex: none; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; padding: 9px 14px; border-radius: 14px; border: 2px solid var(--line); box-shadow: 0 3px 0 var(--line);
+    font-weight: 800; font-size: 14px; color: #d6e2e8; background: var(--sheet); white-space: nowrap;
+    animation: pop .3s cubic-bezier(.3,1.4,.5,1) backwards;
+  }
+  .chip:active { transform: translateY(3px); box-shadow: none; }
+  .chip.go { border-color: var(--green); box-shadow: 0 3px 0 var(--green-d); color: var(--green); }
+  .composer { display: flex; gap: 8px; align-items: center; padding: 6px 14px 34px; flex: none; }
+  .composer input {
+    flex: 1; height: 46px; border-radius: 23px; border: 2px solid var(--line); background: #131f24;
+    color: var(--text); font: 600 15.5px "Nunito", sans-serif; padding: 0 16px; outline: none;
+  }
+  .composer input::placeholder { color: #6b808a; }
+  .composer input:focus { border-color: var(--blue); }
+  .send { width: 46px; height: 46px; border-radius: 50%; background: var(--blue); display: grid; place-items: center; box-shadow: 0 3px 0 var(--blue-d); flex: none; }
+  .send:disabled { background: #37464f; box-shadow: 0 3px 0 #2a373e; }
+</style>
+</head>
+<body>
+
+<!-- Reusable SVG: chess piece geometry (viewBox 0 0 100 100) and Oscar -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="g-p">
+      <circle cx="50" cy="31" r="14"/>
+      <path d="M37 47 h26 a3 3 0 0 1 0 6 h-26 a3 3 0 0 1 0 -6z"/>
+      <path d="M41 52 C41 64 35 70 31 77 h38 C65 70 59 64 59 52z"/>
+      <rect x="25" y="72" width="50" height="16" rx="8"/>
+    </g>
+    <g id="g-r">
+      <path d="M27 14 h11 v8 h6 v-8 h12 v8 h6 v-8 h11 v19 a7 7 0 0 1 -7 7 h-32 a7 7 0 0 1 -7 -7z"/>
+      <path d="M35 38 h30 l3 37 h-36z"/>
+      <rect x="23" y="72" width="54" height="16" rx="8"/>
+    </g>
+    <g id="g-n">
+      <path d="M31 76 C30 63 36 57 45 51 C38 53 30 53 25 49 C20 45 22 38 27 34 C34 27 38 19 45 14 L49 6 L54 13 C71 15 78 30 78 46 C78 59 74 67 71 76z"/>
+      <rect x="23" y="72" width="56" height="16" rx="8"/>
+    </g>
+    <g id="g-b">
+      <circle cx="50" cy="12" r="6.5"/>
+      <path d="M50 17 C63 27 69 37 69 48 C69 58 61 64 50 64 C39 64 31 58 31 48 C31 37 37 27 50 17z"/>
+      <path d="M37 61 h26 l4 14 h-34z"/>
+      <rect x="25" y="72" width="50" height="16" rx="8"/>
+    </g>
+    <g id="g-q">
+      <circle cx="22" cy="27" r="5.5"/><circle cx="36" cy="18" r="5.5"/><circle cx="50" cy="13" r="5.5"/><circle cx="64" cy="18" r="5.5"/><circle cx="78" cy="27" r="5.5"/>
+      <path d="M22 28 L34 46 L36 20 L46 42 L50 15 L54 42 L64 20 L66 46 L78 28 L71 62 H29 Z"/>
+      <path d="M31 59 h38 l-3 16 h-32z"/>
+      <rect x="23" y="72" width="54" height="16" rx="8"/>
+    </g>
+    <g id="g-k">
+      <path d="M45.5 4 h9 v6.5 h6.5 v9 h-6.5 v7 h-9 v-7 h-6.5 v-9 h6.5z"/>
+      <path d="M50 26 C67 26 79 34 79 45 C79 55 69 61 63 63 H37 C31 61 21 55 21 45 C21 34 33 26 50 26z"/>
+      <path d="M36 60 h28 l3 15 h-34z"/>
+      <rect x="23" y="72" width="54" height="16" rx="8"/>
+    </g>
+
+    <!-- Oscar: mustached tutor, pink shirt (viewBox 0 0 120 140) -->
+    <g id="oscar">
+      <!-- shirt -->
+      <path d="M8 140 C8 112 26 100 60 100 C94 100 112 112 112 140z" fill="#f6a6d4"/>
+      <path d="M44 101 L60 118 L76 101z" fill="#e889bd"/>
+      <!-- neck -->
+      <path d="M48 92 h24 v12 c0 6 -24 6 -24 0z" fill="#c9714d"/>
+      <!-- ears -->
+      <circle cx="25" cy="66" r="7" fill="#d9845e"/><circle cx="95" cy="66" r="7" fill="#d9845e"/>
+      <!-- face -->
+      <rect x="25" y="34" width="70" height="68" rx="28" fill="#df8c63"/>
+      <!-- hair -->
+      <path d="M22 62 C14 38 26 14 50 10 C60 2 82 4 90 16 C100 22 102 40 97 60 C94 48 90 40 82 36 C70 40 52 38 44 30 C40 40 32 46 26 50 C24 54 23 58 22 62z" fill="#3a3a3a"/>
+      <path d="M50 12 C58 8 70 8 76 12 C70 14 60 16 50 12z" fill="#555"/>
+      <!-- brows -->
+      <path class="brow" d="M38 56 q8 -7 16 -1" fill="none" stroke="#2e2e2e" stroke-width="5" stroke-linecap="round"/>
+      <path class="brow" d="M66 55 q8 -6 16 1" fill="none" stroke="#2e2e2e" stroke-width="5" stroke-linecap="round"/>
+      <!-- closed eyes -->
+      <path d="M40 66 q6 5 12 0" fill="none" stroke="#2e2e2e" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M68 66 q6 5 12 0" fill="none" stroke="#2e2e2e" stroke-width="3.5" stroke-linecap="round"/>
+      <!-- nose -->
+      <ellipse cx="60" cy="73" rx="7" ry="6" fill="#c9714d"/>
+      <!-- mustache -->
+      <path d="M60 76 C52 74 42 76 36 84 C33 89 37 94 43 91 C49 88 54 86 60 87 C66 86 71 88 77 91 C83 94 87 89 84 84 C78 76 68 74 60 76z" fill="#2b2b2b"/>
+    </g>
+  </defs>
+</svg>
+
+<div class="device">
+<div class="phone" id="phone">
+  <div class="island"></div>
+  <div class="status">
+    <span>9:41</span>
+    <span class="icons">
+      <svg width="19" height="12" viewBox="0 0 19 12"><rect x="0" y="8" width="3.5" height="4" rx="1" fill="#fff"/><rect x="5" y="5.5" width="3.5" height="6.5" rx="1" fill="#fff"/><rect x="10" y="3" width="3.5" height="9" rx="1" fill="#fff"/><rect x="15" y="0" width="3.5" height="12" rx="1" fill="#fff"/></svg>
+      <svg width="17" height="12" viewBox="0 0 17 12"><path d="M8.5 2.3c2.4 0 4.6.9 6.2 2.5l1.2-1.2C13.9 1.6 11.3.6 8.5.6S3.1 1.6 1.1 3.6l1.2 1.2C3.9 3.2 6.1 2.3 8.5 2.3z" fill="#fff"/><path d="M8.5 5.6c1.5 0 2.9.6 3.9 1.6l1.2-1.2C12.3 4.6 10.5 3.9 8.5 3.9S4.7 4.6 3.4 6l1.2 1.2c1-1 2.4-1.6 3.9-1.6z" fill="#fff"/><path d="M8.5 8.8c.7 0 1.3.3 1.7.7L8.5 11.3 6.8 9.5c.4-.4 1-.7 1.7-.7z" fill="#fff"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="#fff" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2.5" fill="#fff"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill="#fff" opacity=".4"/></svg>
+    </span>
+  </div>
+
+  <div class="topbar">
+    <button class="close" aria-label="Close">
+      <svg width="22" height="22" viewBox="0 0 22 22"><path d="M3 3l16 16M19 3L3 19" stroke="#afbec5" stroke-width="3" stroke-linecap="round"/></svg>
+    </button>
+    <div class="progress">
+      <div class="fill"></div>
+      <span class="dot" style="left:11%"></span><span class="dot" style="left:15%"></span><span class="dot" style="left:24%"></span>
+      <span class="dot" style="left:37%"></span><span class="dot" style="left:39.5%"></span><span class="dot" style="left:53%"></span>
+      <span class="dot" style="left:87%"></span><span class="dot" style="left:96%"></span>
+    </div>
+    <div class="energy">
+      <svg width="30" height="20" viewBox="0 0 30 20"><rect x="1" y="1" width="24" height="18" rx="5" fill="#37464f"/><rect x="1" y="1" width="6" height="18" rx="3" fill="#ff4b4b"/><rect x="26.5" y="6.5" width="3" height="7" rx="1.5" fill="#37464f"/><path d="M15 3.5l-5 7.5h4l-1.5 6 5.5-8h-4z" fill="#13202a"/></svg>
+      5
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="header">
+      <div class="tag">
+        <svg width="22" height="24" viewBox="0 0 22 24"><path d="M6 1h10v8h5L11 21 1 9h5z" fill="#ff4b4b"/></svg>
+        BEHIND
+      </div>
+      <div class="title">Review your game</div>
+      <div class="coach-row">
+        <svg class="oscar" viewBox="0 0 120 140"><use href="#oscar"/></svg>
+        <div class="bubble" id="coachText">There was a chance to capture here.</div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div class="board" id="board">
+        <div class="squares" id="squares"></div>
+        <svg class="arrows" id="arrows" viewBox="0 0 800 800"></svg>
+      </div>
+    </div>
+
+    <div class="footer" id="footer">
+      <div class="verdict-row">
+        <div class="verdict" id="verdict">Better move available</div>
+        <button class="ask-btn" id="askBtn" aria-label="Ask Oscar">
+          <span class="av"><svg viewBox="0 0 120 140"><use href="#oscar"/></svg></span>
+          ASK OSCAR
+          <span class="spark">NEW</span>
+        </button>
+      </div>
+      <div class="actions">
+        <button class="btn icon" aria-label="Previous">
+          <svg width="26" height="26" viewBox="0 0 26 26"><path d="M9 5L4 10l5 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 10H15a7 7 0 010 14h-4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+        </button>
+        <button class="btn hint" id="hintBtn">
+          <svg width="18" height="22" viewBox="0 0 18 22"><path d="M9 1.5a7 7 0 00-4 12.8V17h8v-2.7A7 7 0 009 1.5z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M6 20h6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          HINT
+        </button>
+        <button class="btn primary" id="primaryBtn">FIX MOVE</button>
+        <button class="btn icon" aria-label="Next">
+          <svg width="26" height="26" viewBox="0 0 26 26"><path d="M17 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M21.5 10H11a7 7 0 000 14h4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- Ask Oscar chat sheet -->
+  <section class="sheet" id="sheet" aria-label="Ask Oscar chat">
+    <div class="grab"></div>
+    <div class="sheet-head">
+      <span class="av"><svg viewBox="0 0 120 140"><use href="#oscar"/></svg></span>
+      <div>
+        <div class="name">Oscar</div>
+        <div class="sub"><i></i> Your chess coach</div>
+      </div>
+      <button class="x" id="closeChat" aria-label="Close chat">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 7l5 5 5-5" fill="none" stroke="#afbec5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="chips" id="chips"></div>
+    <form class="composer" id="composer" autocomplete="off">
+      <input id="input" type="text" placeholder="Ask Oscar about this move…" aria-label="Message Oscar">
+      <button class="send" id="send" type="submit" aria-label="Send" disabled>
+        <svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 16V4M4.5 9.5L10 4l5.5 5.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <div class="home-ind"></div>
+</div>
+</div>
+
+<script>
+/* ============ Position ============
+   Game review, move 14. You (White) played Nf3–e5.
+   Before the move: r1q2rk1/pppb1pp1/3b3p/3n4/2BP4/5N1P/PPPBQPP1/4R1K1 w
+   Black's knight on d5 was undefended — 14.Bxd5! wins it. */
+const START = {
+  a8:'br', c8:'bq', f8:'br', g8:'bk',
+  a7:'bp', b7:'bp', c7:'bp', d7:'bb', f7:'bp', g7:'bp',
+  d6:'bb', h6:'bp',
+  d5:'bn',
+  c4:'wb', d4:'wp',
+  f3:'wn', h3:'wp',
+  a2:'wp', b2:'wp', c2:'wp', d2:'wb', e2:'wq', f2:'wp', g2:'wp',
+  e1:'wr', g1:'wk'
+};
+const FILES = 'abcdefgh';
+const xy = sq => [FILES.indexOf(sq[0]), 8 - +sq[1]];
+
+const squaresEl = document.getElementById('squares');
+const boardEl = document.getElementById('board');
+const arrowsEl = document.getElementById('arrows');
+const sqEls = {};
+for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+  const d = document.createElement('div');
+  const name = FILES[f] + (8 - r);
+  d.className = 'sq' + ((r + f) % 2 === 0 ? ' l' : '');
+  squaresEl.appendChild(d);
+  sqEls[name] = d;
+}
+
+let pieces = []; // {el, sq, code}
+function pieceSVG(code) {
+  const t = code[1];
+  let det = '';
+  if (t === 'n') det = '<circle class="det" cx="54" cy="30" r="4"/><path class="det-s" d="M33 44 q5 3 10 0"/>';
+  if (t === 'b') det = '<path class="det-s" d="M55 31 L46 43"/>';
+  if (t === 'r') det = '<rect class="det" x="38" y="25" width="24" height="7" rx="3.5"/>';
+  if (t === 'k') det = '<path class="det-s" d="M36 46 q14 8 28 0"/>';
+  if (t === 'q') det = '<path class="det-s" d="M38 52 q12 5 24 0"/>';
+  const gloss = t === 'p' ? '<ellipse class="gloss" cx="44" cy="26" rx="4.5" ry="3.5"/>' : '<ellipse class="gloss" cx="40" cy="80" rx="8" ry="2.4"/>';
+  return `<svg viewBox="0 0 100 100"><use href="#g-${t}" class="shade" transform="translate(0 5)"/><use href="#g-${t}" class="main"/>${det}${gloss}</svg>`;
+}
+function place(p) {
+  const [x, y] = xy(p.sq);
+  p.el.style.transform = `translate(${x * 100}%, ${y * 100}%)`;
+}
+function setPosition(pos) {
+  pieces.forEach(p => p.el.remove());
+  pieces = Object.entries(pos).map(([sq, code]) => {
+    const el = document.createElement('div');
+    el.className = 'piece ' + code[0];
+    el.innerHTML = pieceSVG(code);
+    el.style.transition = 'none';
+    boardEl.insertBefore(el, arrowsEl);
+    const p = { el, sq, code };
+    place(p);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.style.transition = ''));
+    return p;
+  });
+}
+function move(from, to) {
+  const p = pieces.find(q => q.sq === from);
+  const victim = pieces.find(q => q.sq === to);
+  if (!p) return;
+  p.el.classList.add('lift');
+  p.sq = to; place(p);
+  if (victim) {
+    setTimeout(() => victim.el.classList.add('gone'), 380);
+    setTimeout(() => victim.el.remove(), 700);
+    pieces = pieces.filter(q => q !== victim);
+  }
+  setTimeout(() => p.el.classList.remove('lift'), 600);
+}
+
+function highlight(map = {}) {
+  Object.values(sqEls).forEach(el => { el.classList.remove('hi', 'hi-red', 'hi-green'); el.innerHTML = ''; });
+  for (const [sq, cls] of Object.entries(map)) {
+    if (cls === 'ring') sqEls[sq].innerHTML = '<div class="ring"></div>';
+    else sqEls[sq].classList.add(cls);
+  }
+}
+
+const ARROW_COLORS = { yellow: '#ffc800', red: '#ff4b4b', green: '#93d333' };
+function arrows(list = []) {
+  arrowsEl.innerHTML = list.map(([from, to, c]) => {
+    const [x1, y1] = xy(from).map(v => v * 100 + 50);
+    const [x2, y2] = xy(to).map(v => v * 100 + 50);
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const ex = x2 - Math.cos(ang) * 22, ey = y2 - Math.sin(ang) * 22;
+    const h = 30, w = 0.55;
+    const hx1 = ex - Math.cos(ang - w) * h, hy1 = ey - Math.sin(ang - w) * h;
+    const hx2 = ex - Math.cos(ang + w) * h, hy2 = ey - Math.sin(ang + w) * h;
+    const col = ARROW_COLORS[c];
+    return `<g class="arr" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <line x1="${x1}" y1="${y1}" x2="${ex}" y2="${ey}"/>
+      <polyline points="${hx1},${hy1} ${ex},${ey} ${hx2},${hy2}"/></g>`;
+  }).join('');
+}
+
+/* Base review state: show the move that was played (Nf3–e5) */
+function showPlayedMove() {
+  const pos = { ...START }; delete pos.f3; pos.e5 = 'wn';
+  setPosition(pos);
+  highlight({ f3: 'hi', e5: 'hi' });
+  arrows([]);
+}
+showPlayedMove();
+
+/* ============ Footer buttons ============ */
+const phone = document.getElementById('phone');
+const footer = document.getElementById('footer');
+const verdict = document.getElementById('verdict');
+const primaryBtn = document.getElementById('primaryBtn');
+const coachText = document.getElementById('coachText');
+let fixed = false;
+
+function fixMove() {
+  if (fixed) { // "Next highlight" — reset the demo
+    fixed = false;
+    footer.classList.remove('good'); verdict.classList.remove('good');
+    verdict.textContent = 'Better move available'; primaryBtn.textContent = 'FIX MOVE';
+    coachText.textContent = 'There was a chance to capture here.';
+    showPlayedMove();
+    return;
+  }
+  fixed = true;
+  setPosition(START);
+  highlight({ c4: 'hi', d5: 'ring' });
+  arrows([['c4', 'd5', 'yellow']]);
+  setTimeout(() => { arrows([]); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5'); }, 900);
+  setTimeout(() => {
+    footer.classList.add('good'); verdict.classList.add('good');
+    verdict.textContent = 'Best move!'; primaryBtn.textContent = 'NEXT HIGHLIGHT';
+    coachText.textContent = 'That knight was free. Nice find!';
+  }, 1500);
+}
+primaryBtn.addEventListener('click', fixMove);
+document.getElementById('hintBtn').addEventListener('click', () => {
+  if (fixed) return;
+  highlight({ f3: 'hi', e5: 'hi', d5: 'ring' });
+  coachText.textContent = 'Look for an enemy piece with no defenders.';
+});
+
+/* ============ Ask Oscar chat ============ */
+const msgs = document.getElementById('msgs');
+const chipsEl = document.getElementById('chips');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+let started = false, busy = false;
+const asked = new Set();
+
+const mv = (t, cls = '') => `<span class="mv ${cls}">${t}</span>`;
+
+const SCRIPT = {
+  why: {
+    q: 'Why was this weak?',
+    replies: [
+      `${mv('Ne5', 'bad')} looks active — I get the appeal! But it walked right past a gift.`,
+      `Black's knight on <b>d5</b> had <b>zero defenders</b>, and your bishop on c4 was already aiming at it. Now Black just plays ${mv('…Nf4', 'bad')}, saving the knight <i>and</i> hitting your queen.`
+    ],
+    board() {
+      showPlayedMove();
+      highlight({ f3: 'hi', e5: 'hi', d5: 'ring', e2: 'hi-red' });
+      arrows([['d5', 'f4', 'red'], ['f4', 'e2', 'red']]);
+    },
+    next: ['best', 'line']
+  },
+  best: {
+    q: 'What was the best move?',
+    replies: [
+      `${mv('Bxd5!', 'ok')} Your bishop takes the knight for free — nothing on Black's side can take back.`,
+      `You were down material, so this one capture gets you right back in the game. Rule of thumb: <b>before every move, check for loose pieces</b>.`
+    ],
+    eval: true,
+    board() {
+      setPosition(START);
+      highlight({ c4: 'hi', d5: 'ring' });
+      arrows([['c4', 'd5', 'yellow']]);
+    },
+    next: ['line', 'why']
+  },
+  line: {
+    q: 'Show me the line.',
+    replies: [
+      `Watch the board 👀 ${mv('14. Bxd5', 'ok')} ${mv('…c6')} ${mv('15. Bb3', 'ok')}`,
+      `Black kicks the bishop, it steps back to b3 — and you're a <b>full knight up</b> compared to the game. Want to try playing it yourself?`
+    ],
+    async board() {
+      setPosition(START); arrows([]); highlight({});
+      await wait(500); highlight({ c4: 'hi', d5: 'hi' }); move('c4', 'd5');
+      await wait(1100); highlight({ c7: 'hi', c6: 'hi' }); move('c7', 'c6');
+      await wait(1100); highlight({ d5: 'hi', b3: 'hi-green' }); move('d5', 'b3');
+    },
+    next: ['try', 'why']
+  },
+  fallback: {
+    replies: [
+      `Great question! Short version: on move 14 the key idea was ${mv('Bxd5', 'ok')} — grabbing Black's undefended knight on d5.`,
+      `Tap <b>“Show me the line”</b> and I'll walk you through what happens next.`
+    ],
+    board() { setPosition(START); highlight({ c4: 'hi', d5: 'ring' }); arrows([['c4', 'd5', 'yellow']]); },
+    next: ['line', 'why']
+  }
+};
+const CHIP_LABEL = { why: 'Why was this weak?', best: 'What was the best move?', line: 'Show me the line.', try: "Let me try it! ♟" };
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function scrollDown() { msgs.scrollTo({ top: msgs.scrollHeight, behavior: 'smooth' }); }
+function addSys(html) { const d = document.createElement('div'); d.className = 'sys'; d.innerHTML = html; msgs.appendChild(d); }
+function addMsg(who, html) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + who; d.innerHTML = html;
+  msgs.appendChild(d); scrollDown(); return d;
+}
+async function oscarSays(text, delay = 900) {
+  const t = addMsg('o', '<div class="typing"><span></span><span></span><span></span></div>');
+  t.style.padding = '0';
+  await wait(delay);
+  t.style.padding = ''; t.innerHTML = text;
+  t.style.animation = 'none'; t.offsetHeight; t.style.animation = '';
+  scrollDown();
+}
+function setChips(keys) {
+  chipsEl.innerHTML = '';
+  keys.forEach((k, i) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (k === 'try' ? ' go' : '');
+    b.textContent = CHIP_LABEL[k];
+    b.style.animationDelay = (i * 60) + 'ms';
+    b.onclick = () => k === 'try' ? tryIt() : ask(k);
+    chipsEl.appendChild(b);
+  });
+}
+
+async function ask(key, typed) {
+  if (busy) return;
+  busy = true; chipsEl.innerHTML = '';
+  const s = SCRIPT[key];
+  addMsg('u', typed || s.q);
+  asked.add(key);
+  await wait(250);
+  const boardDone = s.board();
+  for (let i = 0; i < s.replies.length; i++) await oscarSays(s.replies[i], i === 0 ? 1000 : 1300);
+  if (s.eval) {
+    await wait(200);
+    const e = document.createElement('div'); e.className = 'eval';
+    e.innerHTML = 'Behind <span class="bar"><i></i></span> Even';
+    msgs.appendChild(e); scrollDown();
+    requestAnimationFrame(() => requestAnimationFrame(() => e.querySelector('i').style.width = '52%'));
+  }
+  await boardDone;
+  const nxt = s.next.filter(k => k === 'try' || !asked.has(k));
+  setChips(nxt.length ? nxt : ['try']);
+  busy = false;
+}
+
+function route(text) {
+  const t = text.toLowerCase();
+  if (/(line|show|then|after|next|continu|play out)/.test(t)) return 'line';
+  if (/(best|better|should|instead|right move|correct)/.test(t)) return 'best';
+  if (/(why|weak|wrong|bad|mistake|blunder|ne5|knight)/.test(t)) return 'why';
+  return 'fallback';
+}
+
+function openChat() {
+  phone.classList.add('chat-open');
+  if (!started) {
+    started = true;
+    setTimeout(async () => {
+      addSys('<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="none" stroke="#8fa3ad" stroke-width="2"/><path d="M7 4v3.3l2 1.4" stroke="#8fa3ad" stroke-width="2" fill="none" stroke-linecap="round"/></svg> Reviewing move 14 — your knight on e5');
+      await oscarSays("Hey! Let's look at this one together. What do you want to know? 🤔", 800);
+      setChips(['why', 'best', 'line']);
+    }, 450);
+  }
+}
+function closeChat() {
+  phone.classList.remove('chat-open');
+  input.blur();
+}
+function tryIt() {
+  closeChat();
+  fixed = false;
+  setTimeout(() => {
+    setPosition(START);
+    highlight({ c4: 'hi', d5: 'ring' }); arrows([]);
+    coachText.textContent = 'Your turn — find the capture!';
+  }, 300);
+}
+
+document.getElementById('askBtn').addEventListener('click', openChat);
+document.getElementById('closeChat').addEventListener('click', closeChat);
+input.addEventListener('input', () => sendBtn.disabled = !input.value.trim());
+document.getElementById('composer').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = input.value.trim();
+  if (!v || busy) return;
+  input.value = ''; sendBtn.disabled = true;
+  ask(route(v), v.replace(/</g, '&lt;'));
+});
+msgs.addEventListener('click', e => {
+  const m = e.target.closest('.mv');
+  if (!m) return;
+  const txt = m.textContent;
+  if (/Bxd5/.test(txt)) { setPosition(START); highlight({ c4: 'hi', d5: 'ring' }); arrows([['c4', 'd5', 'yellow']]); }
+  else if (/Nf4/.test(txt)) { showPlayedMove(); arrows([['d5', 'f4', 'red'], ['f4', 'e2', 'red']]); }
+  else if (/Ne5/.test(txt)) { showPlayedMove(); arrows([['f3', 'e5', 'red']]); }
+});
+
+/* ?chat=1 opens the sheet directly (handy for screenshots) */
+if (new URLSearchParams(location.search).get('chat')) openChat();
+</script>
+</body>
+</html>
