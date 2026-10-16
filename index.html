@@ -52,6 +52,7 @@
   .phone {
     position: relative; width: 390px; height: 844px; overflow: hidden;
     border-radius: 54px; background: var(--bg);
+    container-type: inline-size;
     user-select: none;
   }
   @media (max-width: 500px) {
@@ -165,12 +166,12 @@
 
   /* Feedback footer */
   .footer { margin-top: auto; padding: 0 16px 30px; }
-  .verdict-row { display: flex; align-items: center; justify-content: space-between; height: 58px; }
-  .verdict { font-size: 25px; font-weight: 900; color: var(--orange); letter-spacing: -.2px; transition: color .3s; }
+  .verdict-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 58px; }
+  .verdict { font-size: 25px; white-space: nowrap; min-width: 0; flex: 1; overflow: hidden; font-weight: 900; color: var(--orange); letter-spacing: -.2px; transition: color .3s; }
   .verdict.good { color: var(--green-txt); }
   .ask-btn {
     display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 5px;
-    border-radius: 22px; background: var(--blue); color: #fff;
+    border-radius: 22px; background: var(--blue); color: #fff; flex: none; white-space: nowrap;
     font-weight: 900; font-size: 14px; letter-spacing: .6px;
     box-shadow: 0 4px 0 var(--blue-d), 0 10px 22px rgba(28,176,246,.28);
     position: relative; transform: translateY(-2px);
@@ -183,6 +184,10 @@
     position: absolute; top: -7px; right: -5px; background: var(--yellow); color: #4b3800;
     font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 8px; letter-spacing: .4px;
     box-shadow: 0 2px 0 var(--yellow-d);
+  }
+  @container (max-width: 370px) {
+    .ask-btn { font-size: 12.5px; gap: 5px; padding-right: 11px; height: 40px; }
+    .ask-btn .av { width: 30px; height: 30px; }
   }
   @keyframes bob { 0%,100% { transform: translateY(-2px); } 50% { transform: translateY(-5px); } }
 
@@ -589,6 +594,17 @@ function setMode(m) {
 
 /* FIX MOVE → rewind to before move 14 and let the player find it.
    NEXT HIGHLIGHT → (demo) loop back to the review state. */
+/* Keep the verdict on one line: shrink the font until it fits next to Ask Oscar */
+function fitVerdict() {
+  let size = 25;
+  verdict.style.fontSize = size + 'px';
+  while (verdict.scrollWidth > verdict.clientWidth && size > 14) verdict.style.fontSize = (--size) + 'px';
+}
+new MutationObserver(fitVerdict).observe(verdict, { childList: true, characterData: true, subtree: true });
+window.addEventListener('resize', fitVerdict);
+document.fonts && document.fonts.ready.then(fitVerdict);
+fitVerdict();
+
 primaryBtn.addEventListener('click', () => setMode(mode === 'solved' ? 'review' : 'fixing'));
 
 /* HINT draws the best move as an arrow on the board */
